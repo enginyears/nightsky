@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>@the_enginyears · Your Galaxy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;900&family=IM+Fell+English:ital@1&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+html,body{
+  width:100%;height:100%;
+  background:#030509;
+  overflow:hidden;
+  font-family:'Cinzel',serif;
+  cursor:none;
+}
+
+canvas{position:fixed;top:0;left:0;display:block}
+
+/* ── Custom cursor ───────────────────────────────────── */
+#cursor{
+  position:fixed;z-index:999;pointer-events:none;
+  width:6px;height:6px;border-radius:50%;
+  background:#fff;
+  box-shadow:0 0 8px 2px rgba(180,220,255,0.8);
+  transform:translate(-50%,-50%);
+  transition:transform 0.08s ease,box-shadow 0.1s ease;
+}
+#cursor.big{
+  transform:translate(-50%,-50%) scale(3.5);
+  box-shadow:0 0 14px 4px rgba(255,220,100,0.5);
+}
+
+/* ── Loader ──────────────────────────────────────────── */
+#loader{
+  position:fixed;inset:0;z-index:500;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  background:#030509;
+  gap:28px;
+  transition:opacity 1s ease;
+}
+#loader.out{opacity:0;pointer-events:none}
+.load-title{
+  font-size:13px;letter-spacing:5px;
+  color:rgba(160,200,255,0.6);
+  text-transform:uppercase;
+  animation:pulse-fade 1.6s ease-in-out infinite;
+}
+@keyframes pulse-fade{0%,100%{opacity:0.4}50%{opacity:1}}
+.load-ring{
+  width:48px;height:48px;
+  border:1.5px solid rgba(120,180,255,0.15);
+  border-top-color:rgba(120,180,255,0.7);
+  border-radius:50%;
+  animation:spin 1s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── HUD bottom-centre ───────────────────────────────── */
+#hud{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+  z-index:20;
+  padding:22px 48px 28px;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:linear-gradient(to top,rgba(3,5,9,0.96) 0%,rgba(3,5,9,0) 100%);
+  width:440px;
+  opacity:0;transition:opacity 1.2s ease 0.5s;
+}
+#hud.visible{opacity:1}
+
+.hud-count{
+  font-size:62px;font-weight:900;line-height:1;
+  background:linear-gradient(160deg,#ffffff 0%,#c8e0ff 35%,#e8d4a0 70%,#ffffff 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+  letter-spacing:-1px;
+}
+.hud-label{
+  font-size:9px;letter-spacing:5px;text-transform:uppercase;
+  color:rgba(160,200,255,0.45);
+}
+.hud-meta{
+  display:flex;gap:24px;margin-top:4px;
+}
+.hud-meta span{
+  font-family:'IM Fell English',serif;font-style:italic;
+  font-size:12px;color:rgba(180,210,255,0.4);
+}
+.hud-meta .accent{color:rgba(230,200,120,0.65)}
+
+/* refresh countdown pill */
+#refresh-pill{
+  position:fixed;top:22px;right:22px;z-index:20;
+  padding:8px 16px;
+  border:1px solid rgba(120,180,255,0.12);
+  border-radius:100px;
+  background:rgba(3,5,14,0.65);
+  backdrop-filter:blur(12px);
+  font-size:10px;letter-spacing:3px;
+  color:rgba(140,185,255,0.4);
+  text-transform:uppercase;
+  opacity:0;transition:opacity 1s ease 1s;
+}
+#refresh-pill.visible{opacity:1}
+#refresh-pill .cd{color:rgba(200,230,255,0.65)}
+
+/* profile badge top-left */
+#badge{
+  position:fixed;top:22px;left:22px;z-index:20;
+  display:flex;align-items:center;gap:12px;
+  padding:10px 18px;
+  border:1px solid rgba(120,180,255,0.1);
+  border-radius:100px;
+  background:rgba(3,5,14,0.65);
+  backdrop-filter:blur(12px);
+  opacity:0;transition:opacity 1s ease 1s;
+}
+#badge.visible{opacity:1}
+.badge-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:rgba(100,210,120,0.8);
+  box-shadow:0 0 6px rgba(100,210,120,0.6);
+  animation:badge-blink 3s ease-in-out infinite;
+}
+@keyframes badge-blink{0%,100%{opacity:1}50%{opacity:0.4}}
+.badge-handle{
+  font-size:11px;letter-spacing:2px;
+  color:rgba(180,215,255,0.6);
+}
+
+/* delta toast */
+#delta{
+  position:fixed;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  z-index:100;
+  font-size:28px;letter-spacing:4px;
+  pointer-events:none;
+  opacity:0;
+  transition:none;
+}
+#delta.show-gain{
+  color:rgba(255,230,120,0.9);
+  text-shadow:0 0 30px rgba(255,200,60,0.5);
+  animation:delta-up 2.5s ease forwards;
+}
+#delta.show-loss{
+  color:rgba(180,210,255,0.7);
+  animation:delta-up 2.5s ease forwards;
+}
+@keyframes delta-up{
+  0%{opacity:0;transform:translate(-50%,-40%)}
+  15%{opacity:1;transform:translate(-50%,-50%)}
+  70%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-70%)}
+}
+
+/* moon phase ring label */
+.phase-ring-label{
+  position:fixed;
+  font-size:9px;letter-spacing:3px;
+  color:rgba(180,215,255,0.25);
+  pointer-events:none;
+  text-transform:uppercase;
+}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="load-ring"></div>
+  <div class="load-title">Mapping your galaxy</div>
+</div>
+
+<canvas id="c"></canvas>
+
+<div id="cursor"></div>
+
+<!-- Profile badge -->
+<div id="badge">
+  <div class="badge-dot"></div>
+  <div class="badge-handle">@the_enginyears</div>
+</div>
+
+<!-- Refresh countdown -->
+<div id="refresh-pill">Next sync in <span class="cd" id="cd">30:00</span></div>
+
+<!-- Main HUD -->
+<div id="hud">
+  <div class="hud-label">Stars in your galaxy</div>
+  <div class="hud-count" id="count-display">—</div>
+  <div class="hud-meta">
+    <span id="phase-name">—</span>
+    <span>·</span>
+    <span id="updated-at" class="accent">—</span>
+  </div>
+</div>
+
+<!-- Delta toast -->
+<div id="delta"></div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════════════════
+const DATA_URL       = './data.json';
+const REFRESH_MS     = 30 * 60 * 1000;   // 30 min
+const MOON_PHASE_REF = new Date('2000-01-06T18:14:00Z').getTime();
+const LUNAR_MS       = 29.530588853 * 86400000;
+
+// ════════════════════════════════════════════════════════
+//  CANVAS
+// ════════════════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+let W, H;
+
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', () => { resize(); rebuildStars(); });
+
+// ════════════════════════════════════════════════════════
+//  SEEDED PRNG  (mulberry32)
+// ════════════════════════════════════════════════════════
+function prng(seed){
+  return () => {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// ════════════════════════════════════════════════════════
+//  LUNAR PHASE
+// ════════════════════════════════════════════════════════
+function moonPhase(date = new Date()){
+  const e = ((date - MOON_PHASE_REF) % LUNAR_MS + LUNAR_MS) % LUNAR_MS;
+  return e / LUNAR_MS;   // 0 = new, 0.5 = full
+}
+
+const PHASE_NAMES = [
+  [0.0625,'New Moon'],[0.1875,'Waxing Crescent'],
+  [0.3125,'First Quarter'],[0.4375,'Waxing Gibbous'],
+  [0.5625,'Full Moon'],[0.6875,'Waning Gibbous'],
+  [0.8125,'Last Quarter'],[0.9375,'Waning Crescent'],
+  [1,    'New Moon'],
+];
+function phaseName(p){ return (PHASE_NAMES.find(([m])=>p<=m)||PHASE_NAMES.at(-1))[1]; }
+function phaseEmoji(n){
+  return {'New Moon':'🌑','Waxing Crescent':'🌒','First Quarter':'🌓',
+          'Waxing Gibbous':'🌔','Full Moon':'🌕','Waning Gibbous':'🌖',
+          'Last Quarter':'🌗','Waning Crescent':'🌘'}[n] || '🌑';
+}
+
+// ════════════════════════════════════════════════════════
+//  MOON CANVAS  (pre-render to offscreen canvas)
+// ════════════════════════════════════════════════════════
+let moonOC = null, lastMoonPhase = -1;
+
+function buildMoon(r, phase){
+  if(moonOC && Math.abs(phase - lastMoonPhase) < 0.001) return moonOC;
+  lastMoonPhase = phase;
+
+  const sz = (r + 8) * 2;
+  const oc = document.createElement('canvas');
+  oc.width = oc.height = sz;
+  const o  = oc.getContext('2d');
+  const cx = sz/2, cy = sz/2;
+
+  // — surface gradient
+  const sg = o.createRadialGradient(cx-r*.3, cy-r*.3, 0, cx, cy, r);
+  sg.addColorStop(0,  '#ffffff');
+  sg.addColorStop(.3, '#f5edda');
+  sg.addColorStop(.7, '#d4bf90');
+  sg.addColorStop(1,  '#a08850');
+  o.beginPath(); o.arc(cx, cy, r, 0, Math.PI*2);
+  o.fillStyle = sg; o.fill();
+
+  // — realistic mare (dark regions)
+  const mares = [
+    [-.08, -.22, .28, 'rgba(60,50,30,.38)'], // Mare Imbrium
+    [.20,  -.08, .22, 'rgba(55,45,28,.34)'], // Mare Serenitatis
+    [.14,  .14,  .20, 'rgba(50,42,25,.32)'], // Mare Tranquillitatis
+    [-.20, .18,  .17, 'rgba(58,48,28,.30)'], // Oceanus Procellarum
+    [.36,  .28,  .14, 'rgba(45,38,22,.28)'], // Mare Fecunditatis
+    [-.30, -.30, .12, 'rgba(52,44,26,.25)'], // Mare Frigoris
+    [.04,  .40,  .11, 'rgba(50,42,24,.22)'], // Mare Nectaris
+  ];
+  mares.forEach(([dx,dy,dr,c]) => {
+    const mg = o.createRadialGradient(
+      cx+dx*r, cy+dy*r, 0,
+      cx+dx*r, cy+dy*r, dr*r
+    );
+    mg.addColorStop(0,   c);
+    mg.addColorStop(.6,  c.replace(/[\d.]+\)$/,'.12)'));
+    mg.addColorStop(1,   'rgba(0,0,0,0)');
+    o.beginPath(); o.arc(cx+dx*r, cy+dy*r, dr*r, 0, Math.PI*2);
+    o.fillStyle = mg; o.fill();
+  });
+
+  // — craters
+  [
+    [.38,-.52,.06],[-.42,-.38,.05],[.26,.48,.05],
+    [-.18,.50,.04],[.54,.14,.04],[-.50,.10,.05],
+    [.08,-.60,.05],[-.34,.36,.04],[.48,-.30,.03],
+    [-.08,.20,.025],[.30,-.28,.03],[-.24,-.10,.03],
+    [.60,-.44,.035],[-.60,-.16,.04],[.18,.28,.025],
+  ].forEach(([dx,dy,dr]) => {
+    const cr = dr*r;
+    // rim highlight
+    o.beginPath(); o.arc(cx+dx*r, cy+dy*r, cr*1.08, 0, Math.PI*2);
+    const rim = o.createRadialGradient(
+      cx+dx*r-cr*.3, cy+dy*r-cr*.3, 0,
+      cx+dx*r, cy+dy*r, cr*1.1
+    );
+    rim.addColorStop(0,   'rgba(255,245,220,.25)');
+    rim.addColorStop(.7,  'rgba(120,100,55,.18)');
+    rim.addColorStop(1,   'rgba(0,0,0,0)');
+    o.fillStyle = rim; o.fill();
+    // bowl
+    const bowl = o.createRadialGradient(
+      cx+dx*r, cy+dy*r, 0,
+      cx+dx*r, cy+dy*r, cr
+    );
+    bowl.addColorStop(0,  'rgba(50,40,20,.55)');
+    bowl.addColorStop(.6, 'rgba(80,65,35,.3)');
+    bowl.addColorStop(1,  'rgba(0,0,0,0)');
+    o.beginPath(); o.arc(cx+dx*r, cy+dy*r, cr, 0, Math.PI*2);
+    o.fillStyle = bowl; o.fill();
+  });
+
+  // — terminator shadow
+  if(phase > 0.03 && phase < 0.97){
+    const ex      = r * Math.cos(2*Math.PI*phase);
+    const waxing  = phase < .5;
+    o.save();
+    o.beginPath(); o.arc(cx, cy, r, 0, Math.PI*2); o.clip();
+    o.fillStyle = 'rgba(2,3,8,.96)';
+    o.beginPath();
+    o.moveTo(cx, cy - r);
+    o.arc(cx, cy, r, -Math.PI/2, Math.PI/2, waxing);
+    o.bezierCurveTo(cx+(4/3)*ex, cy+r, cx+(4/3)*ex, cy-r, cx, cy-r);
+    o.fill();
+    o.restore();
+    // soft terminator glow
+    const tg = o.createLinearGradient(cx+ex-r*.08, cy-r, cx+ex+r*.08, cy+r);
+    tg.addColorStop(0, 'rgba(0,0,0,0)');
+    tg.addColorStop(.5,'rgba(40,50,80,.28)');
+    tg.addColorStop(1, 'rgba(0,0,0,0)');
+    o.save(); o.beginPath(); o.arc(cx,cy,r,0,Math.PI*2); o.clip();
+    o.fillStyle = tg;
+    o.fillRect(cx+ex-r*.2, cy-r, r*.4, r*2);
+    o.restore();
+  } else if(phase <= 0.03){
+    o.save();
+    o.beginPath(); o.arc(cx,cy,r,0,Math.PI*2); o.clip();
+    o.fillStyle='rgba(2,3,8,.96)'; o.fillRect(0,0,sz,sz);
+    // ghostly earthshine
+    const es = o.createRadialGradient(cx,cy,0,cx,cy,r);
+    es.addColorStop(0,'rgba(30,50,90,.20)'); es.addColorStop(1,'rgba(0,0,0,0)');
+    o.fillStyle=es; o.fillRect(0,0,sz,sz);
+    o.restore();
+  }
+
+  // — limb shading (edge darkening)
+  const ls = o.createRadialGradient(cx,cy,r*.7,cx,cy,r);
+  ls.addColorStop(0,'rgba(0,0,0,0)'); ls.addColorStop(1,'rgba(0,0,0,.42)');
+  o.save(); o.beginPath(); o.arc(cx,cy,r,0,Math.PI*2); o.clip();
+  o.fillStyle=ls; o.fillRect(0,0,sz,sz); o.restore();
+
+  // — atmosphere rim glow
+  const rg = o.createRadialGradient(cx,cy,r-.5,cx,cy,r+9);
+  rg.addColorStop(0, 'rgba(200,225,255,.12)');
+  rg.addColorStop(.5,'rgba(180,210,255,.06)');
+  rg.addColorStop(1, 'rgba(0,0,0,0)');
+  o.beginPath(); o.arc(cx,cy,r+8,0,Math.PI*2);
+  o.fillStyle=rg; o.fill();
+
+  moonOC = oc;
+  return oc;
+}
+
+// ════════════════════════════════════════════════════════
+//  STAR FIELD
+// ════════════════════════════════════════════════════════
+// Three parallax depth layers (0=front/close, 2=back/deep)
+// Stars have realistic spectral colours
+const SPECTRAL = [
+  // [weight, colourHex, baseAlpha]  (weights = rough stellar frequency)
+  [2,  '#b8d4ff', 0.55],   // O / B  — hot blue-white
+  [8,  '#ddeeff', 0.65],   // A      — white
+  [18, '#fff8ee', 0.72],   // F      — yellow-white
+  [28, '#fffbe8', 0.80],   // G      — sun-like yellow
+  [22, '#ffd8a0', 0.75],   // K      — orange
+  [15, '#ffb870', 0.68],   // M      — red-orange
+  [7,  '#ff9060', 0.60],   // M late — deep red
+];
+const SPECTRAL_TOTAL = SPECTRAL.reduce((s,[w])=>s+w,0);
+
+function pickSpectral(r){
+  let acc=0;
+  for(const [w,col,a] of SPECTRAL){
+    acc += w/SPECTRAL_TOTAL;
+    if(r < acc) return {col, a};
+  }
+  return SPECTRAL.at(-1);
+}
+
+// Star layers:
+//   layer 0 (back)  — tiny, slow parallax, many
+//   layer 1 (mid)   — medium, medium parallax
+//   layer 2 (front) — larger, faster parallax, few
+//   follower layer  — special, count matches follower number
+let bgStars    = [];   // always-present ambient stars (layer 0 & 1)
+let fgStars    = [];   // a few large foreground accent stars (layer 2)
+let follStars  = [];   // exactly follower_count stars (seeded so stable)
+
+function buildBgStars(){
+  const rng  = prng(0xCAFEBABE);
+  const density = Math.floor(W * H / 2200);
+
+  bgStars = Array.from({length: density}, () => {
+    const { col, a } = pickSpectral(rng());
+    return {
+      x:      rng() * W,
+      y:      rng() * H,
+      r:      rng() * 0.9 + 0.15,
+      col,
+      alpha:  a * (0.55 + rng() * 0.45),
+      twinkle:rng() * Math.PI * 2,
+      tSpeed: rng() * 0.8 + 0.2,
+      depth:  rng() < 0.3 ? 1 : 0,
+    };
+  });
+
+  fgStars = Array.from({length: 18}, () => {
+    const { col, a } = pickSpectral(prng(0xDEAD)()*1);
+    const rng2 = prng(Math.random() * 0xFFFFFF | 0);
+    return {
+      x:       rng2() * W,
+      y:       rng2() * H,
+      r:       rng2() * 1.8 + 1.2,
+      col,
+      alpha:   a * (0.6 + rng2() * 0.4),
+      twinkle: rng2() * Math.PI * 2,
+      tSpeed:  rng2() * 1.4 + 0.6,
+      depth:   2,
+      diffraction: rng2() > 0.5,
+    };
+  });
+}
+
+function buildFollowerStars(count){
+  const rng = prng(0xF011E7F0);
+  follStars = Array.from({length: count}, (_, i) => {
+    const { col, a } = pickSpectral(rng());
+    // Avoid the moon region slightly
+    let x, y;
+    const mx = W * MOON.fx, my = H * MOON.fy;
+    do {
+      x = rng() * W;
+      y = rng() * H;
+    } while(Math.hypot(x - mx, y - my) < MOON.r * 2.5 && i < 50);
+    return {
+      x, y,
+      r:       rng() * 1.6 + 0.4,
+      col,
+      alpha:   a * (0.5 + rng() * 0.5),
+      twinkle: rng() * Math.PI * 2,
+      tSpeed:  rng() * 1.2 + 0.4,
+      depth:   rng() < 0.4 ? 1 : 0,
+    };
+  });
+}
+
+function rebuildStars(){
+  buildBgStars();
+  buildFollowerStars(followerCount);
+}
+
+// ════════════════════════════════════════════════════════
+//  MILKY WAY BAND
+// ════════════════════════════════════════════════════════
+let mwStars = [];
+function buildMilkyWay(){
+  const rng = prng(0xBADC0DE);
+  const n   = Math.floor(W * H / 1100);
+  mwStars   = [];
+  // Band: diagonal from top-right to bottom-left
+  for(let i=0; i<n; i++){
+    const t  = rng();
+    // Band position along the diagonal
+    const along  = rng() * (W + H);
+    const across = (rng()-0.5) * H * 0.45;
+    const angle  = -0.38; // radians tilt
+    const bx = along * Math.cos(angle) - across * Math.sin(angle) - W * 0.1;
+    const by = along * Math.sin(angle) + across * Math.cos(angle) - H * 0.05;
+    const edgeFade = 1 - Math.abs(across) / (H * 0.225);
+    if(edgeFade <= 0) continue;
+    mwStars.push({
+      x: bx, y: by,
+      r: rng() * 0.55 + 0.08,
+      alpha: edgeFade * (rng() * 0.18 + 0.04),
+    });
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  AURORA
+// ════════════════════════════════════════════════════════
+const AURORA_BANDS = [
+  { hue:'120,220,160', phase:0,    speed:0.22 },
+  { hue:'80, 180,220', phase:2.1,  speed:0.17 },
+  { hue:'160,100,220', phase:4.3,  speed:0.28 },
+];
+
+function drawAurora(t){
+  const baseY = H * 0.82;
+  AURORA_BANDS.forEach(({ hue, phase, speed }) => {
+    const a = 0.028 + Math.sin(t * speed + phase) * 0.018;
+    const g = ctx.createLinearGradient(0, baseY, 0, H);
+    g.addColorStop(0, `rgba(${hue},0)`);
+    g.addColorStop(.3, `rgba(${hue},${a.toFixed(3)})`);
+    g.addColorStop(.7, `rgba(${hue},${(a*0.6).toFixed(3)})`);
+    g.addColorStop(1,  `rgba(${hue},0)`);
+    // Wavy top edge via bezier path
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, baseY + Math.sin(t*speed+phase)*12);
+    for(let x=0; x<=W; x+=W/8){
+      const nx = x + W/8;
+      const cy1 = baseY + Math.sin(t*speed + phase + x*0.003) * 20;
+      const cy2 = baseY + Math.sin(t*speed + phase + nx*0.003) * 20;
+      ctx.bezierCurveTo(x+W/16,cy1, nx-W/16,cy2, nx,cy2);
+    }
+    ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  SHOOTING STARS
+// ════════════════════════════════════════════════════════
+let shots = [];
+let pendingShots = 0;  // queued from follower loss
+
+function spawnShot(isLoss = false){
+  const ang = (Math.random() * 30 - 5) * Math.PI / 180;
+  const spd = isLoss ? 14 + Math.random() * 8 : 8 + Math.random() * 9;
+  shots.push({
+    x:      Math.random() * W * 0.75,
+    y:      Math.random() * H * 0.5,
+    vx:     Math.cos(ang) * spd,
+    vy:     Math.sin(ang + 0.35) * spd,
+    life:   1,
+    decay:  0.018 + Math.random() * 0.01,
+    width:  isLoss ? 2.5 : 1.8,
+    color:  isLoss ? '180,210,255' : '255,255,255',
+    tailLen: isLoss ? 18 : 11,
+  });
+}
+
+let lastAutoShot = 0;
+function maybeSponAutoShot(t){
+  if(t - lastAutoShot > 8 + Math.random() * 18){
+    lastAutoShot = t;
+    spawnShot(false);
+  }
+}
+
+function drawShots(){
+  shots = shots.filter(s => s.life > 0);
+  shots.forEach(s => {
+    s.x += s.vx; s.y += s.vy; s.life -= s.decay;
+    const tail = ctx.createLinearGradient(
+      s.x, s.y,
+      s.x - s.vx * s.tailLen, s.y - s.vy * s.tailLen
+    );
+    tail.addColorStop(0, `rgba(${s.color},${s.life * 0.9})`);
+    tail.addColorStop(1, `rgba(${s.color},0)`);
+    ctx.save();
+    ctx.strokeStyle = tail;
+    ctx.lineWidth   = s.width * s.life;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(s.x - s.vx * s.tailLen, s.y - s.vy * s.tailLen);
+    ctx.stroke();
+    // bright head
+    ctx.fillStyle = `rgba(255,255,255,${s.life * 0.85})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.width * 0.9 * s.life, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  MOUSE / PARALLAX
+// ════════════════════════════════════════════════════════
+let mouseX = W/2, mouseY = H/2;
+let smoothMX = W/2, smoothMY = H/2;
+
+document.addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+  document.getElementById('cursor').style.left = mouseX + 'px';
+  document.getElementById('cursor').style.top  = mouseY + 'px';
+});
+
+function applyParallax(star, cx, cy, t){
+  const depth   = star.depth || 0;
+  const strength = [0, 0.012, 0.028][depth];
+  const ox = (smoothMX - W/2) * strength;
+  const oy = (smoothMY - H/2) * strength;
+  // wrap so stars don't disappear off edge
+  const x = ((star.x + ox) % W + W) % W;
+  const y = ((star.y + oy) % H + H) % H;
+  return { x, y };
+}
+
+// ════════════════════════════════════════════════════════
+//  MOON CONFIG
+// ════════════════════════════════════════════════════════
+const MOON = { fx: 0.35, fy: 0.38, r: Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.115) };
+Object.defineProperty(MOON, 'x', { get(){ return W * this.fx } });
+Object.defineProperty(MOON, 'y', { get(){ return H * this.fy } });
+
+// ════════════════════════════════════════════════════════
+//  STAR GLIMMER (bloom shimmer) effect
+// ════════════════════════════════════════════════════════
+function drawStar(s, t, parallax = true){
+  const { x, y } = parallax ? applyParallax(s, 0, 0, t) : { x: s.x, y: s.y };
+  const tw  = Math.sin(t * s.tSpeed + s.twinkle);
+  const alp = Math.max(0, s.alpha * (0.78 + tw * 0.22));
+  const rad = s.r * (1 + tw * 0.1);
+
+  ctx.globalAlpha = alp;
+  ctx.fillStyle   = s.col;
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, Math.PI * 2);
+  ctx.fill();
+
+  // diffraction cross on large/bright stars
+  if(s.diffraction && rad > 1.8){
+    ctx.globalAlpha = alp * 0.35;
+    const sl = rad * 4;
+    ctx.strokeStyle = s.col;
+    ctx.lineWidth   = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x-sl,y); ctx.lineTo(x+sl,y);
+    ctx.moveTo(x,y-sl); ctx.lineTo(x,y+sl);
+    ctx.stroke();
+  }
+
+  // soft glow on larger stars
+  if(rad > 1.2){
+    const gl = ctx.createRadialGradient(x,y,0,x,y,rad*4.5);
+    gl.addColorStop(0,   s.col.replace('#','rgba(').replace(/(..)(..)(..)/, (_,r,g,b)=>`${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)},`) + `${alp*0.25})`);
+    gl.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.globalAlpha = 1;
+    ctx.fillStyle   = gl;
+    ctx.beginPath(); ctx.arc(x,y,rad*4.5,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// ════════════════════════════════════════════════════════
+//  GOLDEN SHIMMER (on follower gain)
+// ════════════════════════════════════════════════════════
+let shimmerLife = 0;
+
+function drawShimmer(){
+  if(shimmerLife <= 0) return;
+  shimmerLife -= 0.012;
+  const a = Math.min(1, shimmerLife) * 0.22;
+  const g = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*.7);
+  g.addColorStop(0,   `rgba(255,220,80,${a})`);
+  g.addColorStop(.6,  `rgba(255,180,40,${a*.4})`);
+  g.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ════════════════════════════════════════════════════════
+//  MAIN DRAW LOOP
+// ════════════════════════════════════════════════════════
+function draw(ts = 0){
+  const t = ts / 1000;
+
+  // smooth mouse
+  smoothMX += (mouseX - smoothMX) * 0.04;
+  smoothMY += (mouseY - smoothMY) * 0.04;
+
+  ctx.clearRect(0,0,W,H);
+
+  // ── Background gradient
+  const bg = ctx.createRadialGradient(W*.36, H*.4, 0, W*.5, H*.5, Math.hypot(W,H)*.6);
+  bg.addColorStop(0,    '#0c1530');
+  bg.addColorStop(0.25, '#060b1c');
+  bg.addColorStop(0.65, '#04070f');
+  bg.addColorStop(1,    '#020408');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  // ── Milky Way
+  mwStars.forEach(s => {
+    ctx.globalAlpha = s.alpha;
+    ctx.fillStyle   = '#ffffff';
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // ── Nebulae
+  [
+    { x:W*.78, y:H*.15, r:H*.48, rgb:'60,30,160',   a:.06 },
+    { x:W*.12, y:H*.70, r:H*.40, rgb:'20,60,150',   a:.07 },
+    { x:W*.88, y:H*.75, r:H*.36, rgb:'140,25,90',   a:.055},
+    { x:W*.50, y:H*.05, r:H*.30, rgb:'20,100,80',   a:.05 },
+    { x:W*.04, y:H*.28, r:H*.24, rgb:'70,20,120',   a:.05 },
+    { x:W*.60, y:H*.55, r:H*.20, rgb:'50,100,180',  a:.04 },
+  ].forEach(({ x,y,r,rgb,a }) => {
+    const g = ctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0, `rgba(${rgb},${a})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+  });
+
+  // ── Aurora (bottom)
+  drawAurora(t);
+
+  // ── Background stars
+  bgStars.forEach(s => drawStar(s, t));
+
+  // ── Follower stars (unique layer)
+  follStars.forEach(s => drawStar(s, t));
+
+  // ── Foreground accent stars
+  fgStars.forEach(s => drawStar(s, t));
+
+  // ── Shooting stars
+  maybeSponAutoShot(t);
+  // flush pending loss shots one per frame
+  if(pendingShots > 0){ spawnShot(true); pendingShots--; }
+  drawShots();
+
+  // ── Moon
+  const mc    = buildMoon(MOON.r, moonPhase());
+  const glow  = ctx.createRadialGradient(MOON.x, MOON.y, MOON.r*.4, MOON.x, MOON.y, MOON.r*4);
+  glow.addColorStop(0, 'rgba(170,205,255,.14)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(MOON.x, MOON.y, MOON.r*4, 0, Math.PI*2); ctx.fill();
+  ctx.drawImage(mc, MOON.x - mc.width/2, MOON.y - mc.height/2);
+
+  // ── Golden gain shimmer
+  drawShimmer();
+
+  requestAnimationFrame(draw);
+}
+
+// ════════════════════════════════════════════════════════
+//  COUNTDOWN TIMER (HUD)
+// ════════════════════════════════════════════════════════
+let nextFetchAt = Date.now() + REFRESH_MS;
+
+function updateCountdown(){
+  const left = Math.max(0, nextFetchAt - Date.now());
+  const m    = String(Math.floor(left / 60000)).padStart(2,'0');
+  const s    = String(Math.floor((left % 60000) / 1000)).padStart(2,'0');
+  document.getElementById('cd').textContent = `${m}:${s}`;
+}
+setInterval(updateCountdown, 1000);
+
+// ════════════════════════════════════════════════════════
+//  DATA HANDLING
+// ════════════════════════════════════════════════════════
+let followerCount = 0;
+const LS_KEY = 'ig_follower_count_prev';
+
+function animateCount(target){
+  const el  = document.getElementById('count-display');
+  const cur = parseInt(el.textContent.replace(/,/g,'')) || 0;
+  const dur = 1400;
+  const t0  = performance.now();
+  function step(now){
+    const prog = Math.min((now - t0) / dur, 1);
+    const ease = 1 - Math.pow(1 - prog, 3);
+    el.textContent = Math.round(cur + (target - cur) * ease).toLocaleString();
+    if(prog < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+async function fetchData(){
+  try {
+    const res  = await fetch(`${DATA_URL}?t=${Date.now()}`);
+    if(!res.ok) throw new Error(res.status);
+    const data = await res.json();
+
+    const newCount  = data.follower_count || 0;
+    const prevCount = parseInt(localStorage.getItem(LS_KEY)) || 0;
+    const delta     = newCount - prevCount;
+
+    // Store for next comparison
+    localStorage.setItem(LS_KEY, newCount);
+
+    followerCount = newCount;
+    rebuildStars();
+    animateCount(newCount);
+
+    // Moon phase HUD
+    const p = moonPhase();
+    const n = phaseName(p);
+    document.getElementById('phase-name').textContent = phaseEmoji(n) + ' ' + n;
+
+    // Updated timestamp
+    if(data.fetched_at){
+      const dt = new Date(data.fetched_at);
+      document.getElementById('updated-at').textContent =
+        dt.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }) + ' IST';
+    }
+
+    // Delta effects
+    if(prevCount > 0 && delta !== 0){
+      const deltaEl = document.getElementById('delta');
+      deltaEl.className = '';
+      if(delta > 0){
+        deltaEl.textContent = `+${delta} ✦`;
+        shimmerLife = 1.5;
+        void deltaEl.offsetWidth;
+        deltaEl.classList.add('show-gain');
+      } else {
+        deltaEl.textContent = `${delta} ·`;
+        // fire one shooting star per lost follower (cap at 12)
+        pendingShots = Math.min(Math.abs(delta), 12);
+        void deltaEl.offsetWidth;
+        deltaEl.classList.add('show-loss');
+      }
+    }
+
+    // Show UI
+    document.getElementById('hud').classList.add('visible');
+    document.getElementById('badge').classList.add('visible');
+    document.getElementById('refresh-pill').classList.add('visible');
+
+    // Dismiss loader
+    const loader = document.getElementById('loader');
+    loader.classList.add('out');
+    setTimeout(() => loader.style.display = 'none', 1100);
+
+  } catch(e) {
+    console.warn('data.json not found — demo mode', e);
+    useDemoData();
+  }
+}
+
+function useDemoData(){
+  followerCount = 247;
+  rebuildStars();
+  animateCount(followerCount);
+  const p = moonPhase();
+  const n = phaseName(p);
+  document.getElementById('phase-name').textContent = phaseEmoji(n) + ' ' + n;
+  document.getElementById('updated-at').textContent = 'demo mode';
+  document.getElementById('hud').classList.add('visible');
+  document.getElementById('badge').classList.add('visible');
+  document.getElementById('refresh-pill').classList.add('visible');
+  const loader = document.getElementById('loader');
+  loader.classList.add('out');
+  setTimeout(() => loader.style.display = 'none', 1100);
+}
+
+// ── Auto-refresh every 30 min
+setInterval(() => {
+  nextFetchAt = Date.now() + REFRESH_MS;
+  fetchData();
+}, REFRESH_MS);
+
+// ── Cursor hover change near stars
+canvas.addEventListener('mousemove', e => {
+  const cur = document.getElementById('cursor');
+  // Check within a generous radius of any bright follower star
+  const hit = follStars.some(s => Math.hypot(s.x - e.clientX, s.y - e.clientY) < 18);
+  cur.classList.toggle('big', hit);
+});
+
+// ════════════════════════════════════════════════════════
+//  BOOT
+// ════════════════════════════════════════════════════════
+buildBgStars();
+buildMilkyWay();
+fgStars.forEach(s => {
+  s.x = Math.random() * W;
+  s.y = Math.random() * H;
+}); // randomise accent stars once
+buildFollowerStars(0);
+
+requestAnimationFrame(draw);
+fetchData();
+</script>
+</body>
+</html>
