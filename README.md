@@ -2,7 +2,7 @@
 
 A live sky visualization where **every Instagram follower is a real star** — spectral colour, individual twinkle, depth parallax. The moon shows today's actual lunar phase. Lose a follower? Shooting stars streak across the sky.
 
-**Live at:** `https://<your-username>.github.io/<repo-name>/`
+**Live at:** `https://enginyears.github.io/nightsky/`
 
 ---
 
