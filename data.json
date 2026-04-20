@@ -1,15 +1,7 @@
 {
   "username": "the_enginyears",
-<<<<<<< HEAD
   "follower_count": 2,
   "prev_count": 2,
   "delta": 0,
   "fetched_at": "2026-04-20T19:32:55.961637+00:00"
 }
-=======
-  "follower_count": 1,
-  "prev_count": 0,
-  "delta": 0,
-  "fetched_at": null
-}
->>>>>>> f6c3f0ec13e108bcb9414fdef426d1f738b3ecaf
