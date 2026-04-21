@@ -596,7 +596,17 @@ function animateCount(target) {
 //  DATA FETCH
 // ═══════════════════════════════════════════
 const REFRESH_MS = 30 * 60 * 1000;
-let nextRefresh  = Date.now() + REFRESH_MS;
+let lastRefresh = parseInt(localStorage.getItem('last_refresh') || '0');
+
+// if first time, initialize properly
+if (!lastRefresh) {
+  lastRefresh = Date.now();
+  localStorage.setItem('last_refresh', lastRefresh);
+}
+
+function getNextRefresh() {
+  return lastRefresh + REFRESH_MS;
+}
 
 async function fetchData() {
   try {
@@ -673,15 +683,19 @@ async function fetchData() {
   const loader = document.getElementById('loader');
   loader.classList.add('out');
   setTimeout(() => loader.style.display='none', 1000);
+  lastRefresh = Date.now();
+  localStorage.setItem('last_refresh', lastRefresh);
 }
 
 // ═══════════════════════════════════════════
 //  COUNTDOWN
 // ═══════════════════════════════════════════
 setInterval(() => {
-  const left = Math.max(0, nextRefresh - Date.now());
-  const m = String(Math.floor(left/60000)).padStart(2,'0');
-  const s = String(Math.floor((left%60000)/1000)).padStart(2,'0');
+  const left = Math.max(0, getNextRefresh() - Date.now());
+
+  const m = String(Math.floor(left / 60000)).padStart(2, '0');
+  const s = String(Math.floor((left % 60000) / 1000)).padStart(2, '0');
+
   document.getElementById('cd').textContent = `${m}:${s}`;
 }, 1000);
 
