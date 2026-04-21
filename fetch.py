@@ -52,6 +52,7 @@ delta = follower_count - prev
 # Save
 with open(output_file, "w") as f:
     json.dump({
+        "username": "the_enginyears",
         "follower_count": follower_count,
         "prev_count": prev,
         "delta": delta,
