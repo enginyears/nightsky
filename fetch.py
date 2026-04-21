@@ -51,9 +51,19 @@ def fetch_worker():
     if not WORKER_URL:
         print("  WORKER_URL secret not set — skipping.")
         return None
-    url = f"{WORKER_URL}/?username={USERNAME}"
+    url = f"{WORKER_URL}?username={USERNAME}"
     print(f"  Calling: {url}")
-    raw = get(url)
+    # Must send browser-like headers or Cloudflare's bot protection blocks us
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept":         "application/json, */*",
+        "Accept-Language":"en-US,en;q=0.9",
+        "Referer":        "https://www.instagram.com/",
+    }
+    raw = get(url, headers)
     if not raw:
         return None
     try:
