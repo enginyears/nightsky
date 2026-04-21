@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Fetch follower count
-        run: python simple_fetch.py
+        run: python fetch.py
 
       - name: Commit updated data
         run: |
