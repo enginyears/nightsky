@@ -315,9 +315,9 @@ function buildFollowerStars(count) {
 
     folStars.push({
       x, y,
-      r:   rng() * 1.4 + 0.5,
+      r: Math.pow(rng(), 0.5) * 4 + 0.5,
       col: pickColor(rng()),
-      al:  rng() * 0.45 + 0.45,
+      al: rng() * 0.6 + 0.5,
       sp:  rng() * 1.1 + 0.4,
       ph:  rng() * Math.PI * 2,
     });
