@@ -1,4 +1,3 @@
-@@ -1,59 +1,26 @@
 #!/usr/bin/env python3
 """
 fetch.py — Get @the_enginyears follower count via Cloudflare Worker proxy.
