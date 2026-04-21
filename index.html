@@ -1,687 +1,164 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>@the_enginyears · Galaxy</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap" rel="stylesheet"/>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#000; overflow:hidden; font-family:'Cinzel',serif; cursor:crosshair; }
-  canvas { display:block; position:fixed; top:0; left:0; }
+#!/usr/bin/env python3
+"""
+fetch.py — Fetches @the_enginyears follower count from Instagram.
 
-  /* ── HUD ─────────────────────────────────── */
-  #hud {
-    position:fixed; bottom:0; left:50%; transform:translateX(-50%);
-    width:380px; padding:20px 32px 32px;
-    background:linear-gradient(to top, rgba(0,0,5,.95) 0%, transparent 100%);
-    display:flex; flex-direction:column; align-items:center; gap:4px;
-    opacity:0; transition:opacity 1s ease 0.8s;
-  }
-  #hud.on { opacity:1; }
-  .hud-sub  { font-size:9px; letter-spacing:4px; color:rgba(150,190,255,.4); text-transform:uppercase; }
-  .hud-num  {
-    font-size:56px; font-weight:900; line-height:1;
-    background: linear-gradient(135deg, #fff 0%, #d0e8ff 40%, #ffe8b0 80%, #fff 100%);
-    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
-    letter-spacing:-1px;
-  }
-  .hud-moon { font-size:11px; color:rgba(180,215,255,.5); margin-top:2px; letter-spacing:2px; }
+Method priority:
+  1. Instagram's internal web profile JSON API  <- most reliable, no login
+  2. instaloader (unauthenticated)              <- fallback #1
+  3. Keep existing count + warn                 <- never write zeros
 
-  /* ── Countdown pill ──────────────────────── */
-  #pill {
-    position:fixed; top:20px; right:20px;
-    padding:7px 15px; border-radius:999px;
-    border:1px solid rgba(100,160,255,.12);
-    background:rgba(0,0,8,.6); backdrop-filter:blur(10px);
-    font-size:9px; letter-spacing:3px; color:rgba(120,170,255,.4);
-    text-transform:uppercase; opacity:0; transition:opacity 1s ease 1s;
-  }
-  #pill.on { opacity:1; }
-  #cd { color:rgba(190,220,255,.7); }
+How the internal API works:
+  Instagram's own website calls this endpoint to build the profile page.
+  It's a public JSON endpoint — no authentication header required — but it
+  does need the correct X-IG-App-ID header (the public IG web app identifier,
+  visible in any browser's network tab when you visit instagram.com).
+"""
 
-  /* ── Badge ───────────────────────────────── */
-  #badge {
-    position:fixed; top:20px; left:20px;
-    padding:8px 16px; border-radius:999px;
-    border:1px solid rgba(100,160,255,.12);
-    background:rgba(0,0,8,.6); backdrop-filter:blur(10px);
-    display:flex; align-items:center; gap:9px;
-    font-size:10px; letter-spacing:2px; color:rgba(150,195,255,.5);
-    opacity:0; transition:opacity 1s ease 1s;
-  }
-  #badge.on { opacity:1; }
-  .dot {
-    width:7px; height:7px; border-radius:50%;
-    background:rgba(80,220,120,.85);
-    box-shadow:0 0 6px rgba(80,220,120,.6);
-    animation:blink 2.8s ease-in-out infinite;
-  }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+import json
+import os
+import sys
+import time
+import urllib.request
+import urllib.error
+from datetime import datetime, timezone
 
-  /* ── Delta flash ─────────────────────────── */
-  #delta {
-    position:fixed; top:50%; left:50%;
-    transform:translate(-50%,-50%);
-    font-size:26px; letter-spacing:4px;
-    pointer-events:none; opacity:0;
-  }
-  #delta.gain { color:rgba(255,225,100,.9); animation:deltaAnim 2.6s ease forwards; }
-  #delta.loss { color:rgba(160,200,255,.8); animation:deltaAnim 2.6s ease forwards; }
-  @keyframes deltaAnim {
-    0%  { opacity:0; transform:translate(-50%,-40%); }
-    15% { opacity:1; transform:translate(-50%,-50%); }
-    70% { opacity:1; }
-    100%{ opacity:0; transform:translate(-50%,-68%); }
-  }
+# ── config ────────────────────────────────────────────────────────────────────
+USERNAME    = "the_enginyears"
+OUTPUT_FILE = "data.json"
 
-  /* ── Loader ──────────────────────────────── */
-  #loader {
-    position:fixed; inset:0; z-index:100;
-    background:#000; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:22px;
-    transition:opacity .9s ease;
-  }
-  #loader.out { opacity:0; pointer-events:none; }
-  .ring {
-    width:44px; height:44px; border-radius:50%;
-    border:1.5px solid rgba(100,160,255,.12);
-    border-top-color:rgba(120,180,255,.7);
-    animation:spin 1s linear infinite;
-  }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  .load-txt { font-size:10px; letter-spacing:4px; color:rgba(130,180,255,.45); text-transform:uppercase; }
-</style>
-</head>
-<body>
+# Instagram's public web app ID — baked into instagram.com's JS bundle,
+# visible in any browser's network inspector on the profile page.
+IG_APP_ID   = "936619743392459"
 
-<div id="loader"><div class="ring"></div><div class="load-txt">Mapping your galaxy</div></div>
-<canvas id="c"></canvas>
-
-<div id="badge"><div class="dot"></div>@the_enginyears</div>
-<div id="pill">Next sync <span id="cd">30:00</span></div>
-<div id="hud">
-  <div class="hud-sub">Stars in your galaxy</div>
-  <div class="hud-num" id="numEl">—</div>
-  <div class="hud-moon" id="moonLabel">—</div>
-</div>
-<div id="delta" id="deltaEl"></div>
-
-<script>
-'use strict';
-
-// ═══════════════════════════════════════════
-//  SETUP
-// ═══════════════════════════════════════════
-const canvas = document.getElementById('c');
-const ctx    = canvas.getContext('2d');
-let W = 0, H = 0;
-
-function resize() {
-  W = canvas.width  = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', () => { resize(); init(); });
-
-// ═══════════════════════════════════════════
-//  SEEDED PRNG  (mulberry32)
-// ═══════════════════════════════════════════
-function mkRng(seed) {
-  return () => {
-    let t = (seed += 0x6D2B79F5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+# Realistic browser headers. Instagram checks these and rejects requests
+# that look obviously scripted (empty User-Agent, missing Referer, etc.)
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept":           "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language":  "en-US,en;q=0.9",
+    "X-IG-App-ID":      IG_APP_ID,
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer":          f"https://www.instagram.com/the_enginyears/",
+    "Origin":           "https://www.instagram.com",
 }
 
-// ═══════════════════════════════════════════
-//  MOON — always drawn prominently
-// ═══════════════════════════════════════════
-const MOON_REF_MS  = new Date('2000-01-06T18:14:00Z').getTime();
-const LUNAR_CYCLE  = 29.530588853 * 86400000;
 
-function getLunarPhase() {
-  const elapsed = ((Date.now() - MOON_REF_MS) % LUNAR_CYCLE + LUNAR_CYCLE) % LUNAR_CYCLE;
-  return elapsed / LUNAR_CYCLE; // 0=new, 0.5=full
-}
+def get(url, headers, timeout=15):
+    """Makes an HTTP GET, returns raw bytes or None on any failure."""
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            if resp.info().get("Content-Encoding") == "gzip":
+                import gzip
+                return gzip.decompress(raw)
+            return raw
+    except urllib.error.HTTPError as e:
+        print(f"  HTTP {e.code}: {e.reason}")
+    except urllib.error.URLError as e:
+        print(f"  Connection error: {e.reason}")
+    except Exception as e:
+        print(f"  Unexpected: {e}")
+    return None
 
-const PHASE_NAMES = [
-  [0.0625,'New Moon'],[0.1875,'Waxing Crescent'],[0.3125,'First Quarter'],
-  [0.4375,'Waxing Gibbous'],[0.5625,'Full Moon'],[0.6875,'Waning Gibbous'],
-  [0.8125,'Last Quarter'],[0.9375,'Waning Crescent'],[1,'New Moon'],
-];
-function phaseName(p) { return (PHASE_NAMES.find(([m])=>p<=m)||PHASE_NAMES.at(-1))[1]; }
-function phaseEmoji(n) {
-  return {'New Moon':'🌑','Waxing Crescent':'🌒','First Quarter':'🌓',
-    'Waxing Gibbous':'🌔','Full Moon':'🌕','Waning Gibbous':'🌖',
-    'Last Quarter':'🌗','Waning Crescent':'🌘'}[n]||'🌑';
-}
 
-// Build moon on an offscreen canvas — cached and reused
-let moonCache = null, cachedPhase = -1;
+def fetch_internal_api():
+    """
+    Calls Instagram's internal web_profile_info endpoint.
+    This is the same endpoint instagram.com calls in your browser —
+    it returns rich JSON including the follower count.
+    Response shape: {"data": {"user": {"edge_followed_by": {"count": N}}}}
+    """
+    url = (
+        f"https://www.instagram.com/api/v1/users/web_profile_info/"
+        f"?username={USERNAME}"
+    )
+    raw = get(url, HEADERS)
+    if not raw:
+        return None
+    try:
+        data  = json.loads(raw.decode("utf-8"))
+        count = data["data"]["user"]["edge_followed_by"]["count"]
+        print(f"  Internal API: {count:,} followers")
+        return int(count)
+    except (KeyError, TypeError, ValueError) as e:
+        print(f"  JSON shape unexpected: {e}")
+        print(f"  Response preview: {raw[:400]}")
+        return None
 
-function buildMoonCanvas(R, phase) {
-  if (moonCache && Math.abs(phase - cachedPhase) < 0.0015) return moonCache;
-  cachedPhase = phase;
 
-  const SZ = (R + 10) * 2;
-  const oc = document.createElement('canvas');
-  oc.width = oc.height = SZ;
-  const o  = oc.getContext('2d');
-  const cx = SZ / 2, cy = SZ / 2;
+def fetch_instaloader():
+    """Uses instaloader's public profile fetch — no login required."""
+    try:
+        import instaloader
+        L = instaloader.Instaloader(
+            quiet=True,
+            download_pictures=False, download_videos=False,
+            download_video_thumbnails=False, download_geotags=False,
+            download_comments=False, save_metadata=False,
+        )
+        profile = instaloader.Profile.from_username(L.context, USERNAME)
+        print(f"  instaloader: {profile.followers:,} followers")
+        return profile.followers
+    except Exception as e:
+        print(f"  instaloader failed: {e}")
+        return None
 
-  // ── lit surface ──────────────────────────────
-  const sg = o.createRadialGradient(cx - R*.3, cy - R*.32, 0, cx, cy, R);
-  sg.addColorStop(0,   '#ffffff');
-  sg.addColorStop(0.3, '#f4ecda');
-  sg.addColorStop(0.7, '#d2bc8a');
-  sg.addColorStop(1,   '#a88850');
-  o.beginPath(); o.arc(cx, cy, R, 0, Math.PI*2);
-  o.fillStyle = sg; o.fill();
 
-  // ── mare (dark regions) ───────────────────────
-  [
-    [-0.08,-0.22, 0.30,'50,40,22,.42'],
-    [ 0.22,-0.06, 0.24,'45,36,18,.38'],
-    [ 0.14, 0.15, 0.22,'42,34,16,.35'],
-    [-0.22, 0.19, 0.18,'48,38,20,.32'],
-    [ 0.38, 0.26, 0.15,'38,30,14,.28'],
-    [-0.32,-0.28, 0.12,'44,36,18,.25'],
-  ].forEach(([dx,dy,dr,col]) => {
-    const g = o.createRadialGradient(cx+dx*R,cy+dy*R,0,cx+dx*R,cy+dy*R,dr*R);
-    g.addColorStop(0, `rgba(${col})`);
-    g.addColorStop(0.55, `rgba(${col.replace(/[\d.]+\)$/,'.1)')}`);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    o.beginPath(); o.arc(cx+dx*R,cy+dy*R,dr*R,0,Math.PI*2);
-    o.fillStyle=g; o.fill();
-  });
+def load_existing():
+    if os.path.exists(OUTPUT_FILE):
+        try:
+            with open(OUTPUT_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"follower_count": 0}
 
-  // ── craters ────────────────────────────────────
-  [[.38,-.50,.06],[-.40,-.36,.05],[.26,.46,.05],
-   [-.18,.48,.04],[.52,.14,.04],[-.48,.10,.05],
-   [.10,-.58,.05],[.48,-.28,.04],[-.06,.22,.03]
-  ].forEach(([dx,dy,dr]) => {
-    const r=dr*R, x=cx+dx*R, y=cy+dy*R;
-    const rim=o.createRadialGradient(x-r*.3,y-r*.3,0,x,y,r*1.1);
-    rim.addColorStop(0,'rgba(255,245,220,.22)');
-    rim.addColorStop(0.7,'rgba(100,82,48,.16)');
-    rim.addColorStop(1,'rgba(0,0,0,0)');
-    o.beginPath(); o.arc(x,y,r*1.1,0,Math.PI*2); o.fillStyle=rim; o.fill();
-    const bowl=o.createRadialGradient(x,y,0,x,y,r);
-    bowl.addColorStop(0,'rgba(40,32,14,.58)');
-    bowl.addColorStop(0.6,'rgba(70,56,28,.32)');
-    bowl.addColorStop(1,'rgba(0,0,0,0)');
-    o.beginPath(); o.arc(x,y,r,0,Math.PI*2); o.fillStyle=bowl; o.fill();
-  });
 
-  // ── limb darkening ─────────────────────────────
-  const ld = o.createRadialGradient(cx,cy,R*.65,cx,cy,R);
-  ld.addColorStop(0,'rgba(0,0,0,0)'); ld.addColorStop(1,'rgba(0,0,0,.38)');
-  o.save(); o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
-  o.fillStyle=ld; o.fillRect(0,0,SZ,SZ); o.restore();
+def main():
+    print(f"\n Syncing @{USERNAME}...\n")
 
-  // ── shadow / phase ────────────────────────────
-  // new moon: paint full dark
-  if (phase <= 0.03 || phase >= 0.97) {
-    o.save(); o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
-    // Very dark but not totally black — faint earthshine
-    const es = o.createRadialGradient(cx,cy,0,cx,cy,R);
-    es.addColorStop(0,'rgba(8,16,40,.92)'); es.addColorStop(1,'rgba(2,4,14,.97)');
-    o.fillStyle=es; o.fillRect(0,0,SZ,SZ); o.restore();
-  } else {
-    // elliptical terminator via bezier
-    const ex = R * Math.cos(2*Math.PI*phase); // > 0 = crescent shadow, < 0 = gibbous
-    const waxing = phase < 0.5;
-    o.save();
-    o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
-    o.fillStyle = 'rgba(2,4,12,.96)';
-    o.beginPath();
-    o.moveTo(cx, cy - R);
-    o.arc(cx, cy, R, -Math.PI/2, Math.PI/2, waxing);       // dark semicircle
-    o.bezierCurveTo(cx+(4/3)*ex, cy+R, cx+(4/3)*ex, cy-R, cx, cy-R); // terminator
-    o.fill();
-    o.restore();
-  }
+    # Try internal API first
+    print("Method 1: Instagram internal API")
+    count = fetch_internal_api()
 
-  // ── atmosphere glow rim ────────────────────────
-  const rim = o.createRadialGradient(cx,cy,R-1,cx,cy,R+10);
-  rim.addColorStop(0,'rgba(210,230,255,.15)');
-  rim.addColorStop(0.5,'rgba(180,210,255,.07)');
-  rim.addColorStop(1,'rgba(0,0,0,0)');
-  o.beginPath(); o.arc(cx,cy,R+9,0,Math.PI*2); o.fillStyle=rim; o.fill();
+    # Fallback to instaloader
+    if count is None:
+        print("\nMethod 2: instaloader")
+        time.sleep(3)
+        count = fetch_instaloader()
 
-  moonCache = oc;
-  return oc;
-}
+    # Both failed — preserve existing file, do not write zeros
+    if count is None:
+        print("\nAll methods failed. Keeping existing data.json unchanged.")
+        print("This is usually a temporary rate-limit on the runner IP.")
+        print("The workflow will retry in 30 minutes automatically.")
+        return False
 
-// ═══════════════════════════════════════════
-//  STAR ARRAYS
-// ═══════════════════════════════════════════
-let bgStars  = [];   // background ambient field
-let folStars = [];   // follower stars (exactly followerCount)
+    existing = load_existing()
+    prev     = existing.get("follower_count", 0)
+    delta    = count - prev
 
-// Spectral class colours weighted by stellar frequency
-const SPECTRAL = [
-  [3,  '#b4d0ff'],  // O/B blue-white
-  [9,  '#ddeeff'],  // A   white
-  [20, '#fff7e8'],  // F   yellow-white
-  [30, '#fffbe4'],  // G   sun-like
-  [22, '#ffd898'],  // K   orange
-  [13, '#ffb068'],  // M   red-orange
-  [3,  '#ff8050'],  // M-  deep red
-];
-const S_TOTAL = SPECTRAL.reduce((a,[w])=>a+w,0);
+    if   delta > 0: print(f"\n+{delta} since last run")
+    elif delta < 0: print(f"\n{delta} since last run (shooting stars!)")
+    else:           print(f"\nNo change ({count:,})")
 
-function pickColor(r) {
-  let acc = 0;
-  for (const [w, col] of SPECTRAL) {
-    acc += w / S_TOTAL;
-    if (r < acc) return col;
-  }
-  return SPECTRAL.at(-1)[1];
-}
+    with open(OUTPUT_FILE, "w") as f:
+        json.dump({
+            "username":       USERNAME,
+            "follower_count": count,
+            "prev_count":     prev,
+            "delta":          delta,
+            "fetched_at":     datetime.now(timezone.utc).isoformat(),
+        }, f, indent=2)
 
-function buildBgStars() {
-  const rng = mkRng(0xABCD1234);
-  const n   = Math.floor(W * H / 2400) + 80;
-  bgStars = Array.from({length: n}, () => ({
-    x:  rng() * W,
-    y:  rng() * H,
-    r:  rng() * 0.95 + 0.15,
-    col: pickColor(rng()),
-    al:  rng() * 0.5 + 0.3,
-    sp:  rng() * 0.8 + 0.25,
-    ph:  rng() * Math.PI * 2,
-  }));
-}
+    print(f"Saved {count:,} followers to {OUTPUT_FILE}")
+    return True
 
-function buildFollowerStars(count) {
-  const rng = mkRng(0xF01100FF);
-  const mx  = W * 0.38, my = H * 0.40;  // moon position
-  const MR  = Math.round(Math.min(W,H) * 0.125);
 
-  folStars = [];
-  for (let i = 0; i < count; i++) {
-    let x, y, attempts = 0;
-    // Keep re-rolling until the star is outside the moon zone
-    do {
-      x = rng() * W;
-      y = rng() * H;
-      attempts++;
-    } while (Math.hypot(x-mx, y-my) < MR * 2.8 && attempts < 30);
-
-    folStars.push({
-      x, y,
-      r:   rng() * 1.4 + 0.5,
-      col: pickColor(rng()),
-      al:  rng() * 0.45 + 0.45,
-      sp:  rng() * 1.1 + 0.4,
-      ph:  rng() * Math.PI * 2,
-    });
-  }
-}
-
-// ═══════════════════════════════════════════
-//  MILKY WAY  (static, seeded)
-// ═══════════════════════════════════════════
-let mwStars = [];
-function buildMilkyWay() {
-  const rng = mkRng(0x77AA00BB);
-  const n   = Math.floor(W * H / 1000);
-  mwStars   = [];
-  for (let i = 0; i < n; i++) {
-    const along  = rng() * (W + H * 0.9);
-    const across = (rng() - 0.5) * H * 0.50;
-    const fade   = 1 - Math.abs(across) / (H * 0.25);
-    if (fade <= 0) continue;
-    const angle = -0.34;
-    const bx = along * Math.cos(angle) - across * Math.sin(angle) - W * 0.05;
-    const by = along * Math.sin(angle) + across * Math.cos(angle) - H * 0.1;
-    mwStars.push({
-      x:  bx, y:  by,
-      r:  rng() * 0.5 + 0.06,
-      al: fade * (rng() * 0.14 + 0.03),
-    });
-  }
-}
-
-// ═══════════════════════════════════════════
-//  SHOOTING STARS
-// ═══════════════════════════════════════════
-let shots = [];
-let lossQueue = 0;
-let lastAutoShot = 0;
-
-function fireShot(isLoss) {
-  const angle = (Math.random() * 30 - 8) * Math.PI / 180;
-  const speed = isLoss ? 13 + Math.random()*7 : 7 + Math.random()*8;
-  shots.push({
-    x: Math.random() * W * 0.72,
-    y: Math.random() * H * 0.48,
-    vx: Math.cos(angle) * speed,
-    vy: Math.sin(angle + 0.3) * speed,
-    life: 1,
-    decay: isLoss ? 0.016 : 0.020 + Math.random()*.008,
-    w:  isLoss ? 2.4 : 1.6,
-    rgb: isLoss ? '160,210,255' : '255,255,255',
-    tail: isLoss ? 20 : 12,
-  });
-}
-
-// ═══════════════════════════════════════════
-//  AURORA
-// ═══════════════════════════════════════════
-const AURORA = [
-  {rgb:'80,220,140', ph:0,   sp:0.20},
-  {rgb:'50,160,230', ph:2.1, sp:0.16},
-  {rgb:'140,80,220', ph:4.4, sp:0.25},
-];
-
-// ═══════════════════════════════════════════
-//  PARALLAX
-// ═══════════════════════════════════════════
-let mx = 0, my = 0, smx = 0, smy = 0;
-document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
-
-// ═══════════════════════════════════════════
-//  DRAW LOOP
-// ═══════════════════════════════════════════
-function drawLoop(ts) {
-  const t = ts / 1000;
-  smx += (mx - smx) * 0.04;
-  smy += (my - smy) * 0.04;
-
-  ctx.clearRect(0, 0, W, H);
-
-  // ── sky gradient ────────────────────────────
-  const sky = ctx.createRadialGradient(W*.38, H*.40, 0, W*.5, H*.5, Math.hypot(W,H)*.65);
-  sky.addColorStop(0,    '#0d1838');
-  sky.addColorStop(0.30, '#070d20');
-  sky.addColorStop(0.70, '#030810');
-  sky.addColorStop(1,    '#010306');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-
-  // ── nebulae ──────────────────────────────────
-  [
-    {x:W*.78,y:H*.12,r:H*.50,rgb:'55,25,160',.a:.065},
-    {x:W*.12,y:H*.72,r:H*.42,rgb:'15,55,155',.a:.070},
-    {x:W*.90,y:H*.78,r:H*.38,rgb:'135,20,85',.a:.055},
-    {x:W*.50,y:H*.02,r:H*.32,rgb:'18,95,78', .a:.050},
-    {x:W*.03,y:H*.30,r:H*.26,rgb:'65,18,115',.a:.048},
-  ].forEach(n => {
-    const g = ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);
-    g.addColorStop(0,`rgba(${n.rgb},${n.a})`);
-    g.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fill();
-  });
-
-  // ── milky way ────────────────────────────────
-  mwStars.forEach(s => {
-    ctx.globalAlpha = s.al;
-    ctx.fillStyle   = '#fff';
-    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
-  });
-  ctx.globalAlpha = 1;
-
-  // ── aurora ───────────────────────────────────
-  {
-    const baseY = H * 0.80;
-    AURORA.forEach(({ rgb, ph, sp }) => {
-      const a = 0.026 + Math.sin(t * sp + ph) * 0.016;
-      const g = ctx.createLinearGradient(0, baseY - 40, 0, H);
-      g.addColorStop(0, `rgba(${rgb},0)`);
-      g.addColorStop(.25, `rgba(${rgb},${a.toFixed(3)})`);
-      g.addColorStop(.65, `rgba(${rgb},${(a*.55).toFixed(3)})`);
-      g.addColorStop(1,  `rgba(${rgb},0)`);
-      ctx.save();
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      let startY = baseY + Math.sin(t * sp + ph) * 14;
-      ctx.moveTo(0, startY);
-      const segs = 8;
-      for (let i = 0; i <= segs; i++) {
-        const px = (i / segs) * W;
-        const py = baseY + Math.sin(t * sp + ph + px * 0.004) * 18;
-        ctx.lineTo(px, py);
-      }
-      ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
-      ctx.fill(); ctx.restore();
-    });
-  }
-
-  // ── background stars ─────────────────────────
-  bgStars.forEach(s => {
-    // subtle parallax (layer 0 = no shift, could add depth later)
-    const tw  = Math.sin(t * s.sp + s.ph) * 0.18 + 0.82;
-    const al  = s.al * tw;
-    ctx.globalAlpha = al;
-    ctx.fillStyle   = s.col;
-    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
-  });
-  ctx.globalAlpha = 1;
-
-  // ── follower stars (the important ones!) ─────
-  folStars.forEach(s => {
-    // parallax offset
-    const ox  = (smx - W/2) * 0.008;
-    const oy  = (smy - H/2) * 0.008;
-    const px  = ((s.x + ox) % W + W) % W;
-    const py  = ((s.y + oy) % H + H) % H;
-
-    const tw  = Math.sin(t * s.sp + s.ph) * 0.20 + 0.80;
-    const al  = s.al * tw;
-    const rad = s.r * (1 + Math.sin(t * s.sp + s.ph) * 0.08);
-
-    // glow halo (draw before the dot)
-    if (rad > 0.8) {
-      const g = ctx.createRadialGradient(px, py, 0, px, py, rad * 5);
-      // Parse hex color to rgba safely
-      const hex = s.col.slice(1);
-      const r8  = parseInt(hex.slice(0,2),16);
-      const g8  = parseInt(hex.slice(2,4),16);
-      const b8  = parseInt(hex.slice(4,6),16);
-      g.addColorStop(0, `rgba(${r8},${g8},${b8},${(al * 0.28).toFixed(3)})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(px, py, rad*5, 0, Math.PI*2); ctx.fill();
-    }
-
-    // core dot
-    ctx.globalAlpha = al;
-    ctx.fillStyle   = s.col;
-    ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI*2); ctx.fill();
-    ctx.globalAlpha = 1;
-  });
-
-  // ── shooting stars ────────────────────────────
-  if (t - lastAutoShot > 8 + Math.random() * 16) {
-    lastAutoShot = t;
-    fireShot(false);
-  }
-  if (lossQueue > 0) { fireShot(true); lossQueue--; }
-  shots = shots.filter(s => s.life > 0);
-  shots.forEach(s => {
-    s.x += s.vx; s.y += s.vy; s.life -= s.decay;
-    const tail = ctx.createLinearGradient(
-      s.x, s.y,
-      s.x - s.vx * s.tail, s.y - s.vy * s.tail
-    );
-    tail.addColorStop(0, `rgba(${s.rgb},${(s.life*.88).toFixed(3)})`);
-    tail.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.save();
-    ctx.strokeStyle = tail; ctx.lineWidth = s.w * s.life;
-    ctx.beginPath(); ctx.moveTo(s.x,s.y);
-    ctx.lineTo(s.x-s.vx*s.tail, s.y-s.vy*s.tail);
-    ctx.stroke();
-    ctx.fillStyle = `rgba(255,255,255,${(s.life*.8).toFixed(3)})`;
-    ctx.beginPath(); ctx.arc(s.x,s.y,s.w*.8*s.life,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-  });
-
-  // ── moon ─────────────────────────────────────
-  const MR   = Math.round(Math.min(W, H) * 0.125);
-  const MCX  = W * 0.38;
-  const MCY  = H * 0.40;
-  const phase = getLunarPhase();
-
-  // Large ambient glow (always visible, even on new moon)
-  const glow1 = ctx.createRadialGradient(MCX, MCY, 0, MCX, MCY, MR * 5);
-  glow1.addColorStop(0,   'rgba(200,225,255,.10)');
-  glow1.addColorStop(0.4, 'rgba(180,210,255,.05)');
-  glow1.addColorStop(1,   'rgba(0,0,0,0)');
-  ctx.fillStyle = glow1;
-  ctx.beginPath(); ctx.arc(MCX, MCY, MR * 5, 0, Math.PI*2); ctx.fill();
-
-  // Tighter warm glow
-  const glow2 = ctx.createRadialGradient(MCX, MCY, MR*.5, MCX, MCY, MR*2.2);
-  glow2.addColorStop(0,   'rgba(255,240,200,.12)');
-  glow2.addColorStop(0.5, 'rgba(200,220,255,.06)');
-  glow2.addColorStop(1,   'rgba(0,0,0,0)');
-  ctx.fillStyle = glow2;
-  ctx.beginPath(); ctx.arc(MCX, MCY, MR*2.2, 0, Math.PI*2); ctx.fill();
-
-  // Moon surface
-  const mc = buildMoonCanvas(MR, phase);
-  ctx.drawImage(mc, MCX - mc.width/2, MCY - mc.height/2);
-
-  requestAnimationFrame(drawLoop);
-}
-
-// ═══════════════════════════════════════════
-//  INITIALISE SCENE
-// ═══════════════════════════════════════════
-let followerCount = parseInt(localStorage.getItem('ig_count') || '0');
-
-function init() {
-  buildBgStars();
-  buildMilkyWay();
-  buildFollowerStars(followerCount);
-}
-
-// ═══════════════════════════════════════════
-//  COUNT ANIMATION
-// ═══════════════════════════════════════════
-function animateCount(target) {
-  const el  = document.getElementById('numEl');
-  const from = parseInt(el.textContent.replace(/,/g,'')) || 0;
-  const dur  = 1200;
-  const t0   = performance.now();
-  (function step(now) {
-    const prog = Math.min((now - t0) / dur, 1);
-    const ease = 1 - Math.pow(1 - prog, 3);
-    el.textContent = Math.round(from + (target - from) * ease).toLocaleString();
-    if (prog < 1) requestAnimationFrame(step);
-  })(performance.now());
-}
-
-// ═══════════════════════════════════════════
-//  DATA FETCH
-// ═══════════════════════════════════════════
-const REFRESH_MS = 30 * 60 * 1000;
-let nextRefresh  = Date.now() + REFRESH_MS;
-
-async function fetchData() {
-  try {
-    const res  = await fetch(`./data.json?t=${Date.now()}`);
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-
-    const newCount  = data.follower_count || 0;
-    const prevCount = parseInt(localStorage.getItem('ig_count') || '0');
-    const delta     = newCount - prevCount;
-
-    // Only update if we got a real number
-    if (newCount > 0) {
-      localStorage.setItem('ig_count', newCount);
-      followerCount = newCount;
-      buildFollowerStars(newCount);
-      animateCount(newCount);
-
-      // Show delta effect
-      if (prevCount > 0 && delta !== 0) {
-        const el = document.getElementById('delta');
-        el.className = '';
-        if (delta > 0) {
-          el.textContent = `+${delta} ✦`;
-          void el.offsetWidth;
-          el.className = 'gain';
-        } else {
-          el.textContent = `${delta} ·`;
-          lossQueue = Math.min(Math.abs(delta), 10);
-          void el.offsetWidth;
-          el.className = 'loss';
-        }
-      }
-    } else if (prevCount > 0) {
-      // data.json still shows 0 (not updated yet) — show cached count
-      animateCount(prevCount);
-      document.getElementById('numEl').textContent = prevCount.toLocaleString() + ' ✦';
-    }
-
-    // Moon phase label
-    const p  = getLunarPhase();
-    const pn = phaseName(p);
-    document.getElementById('moonLabel').textContent =
-      phaseEmoji(pn) + ' ' + pn + '  ·  ' +
-      Math.round(p * 100) + '% of cycle';
-
-    // Updated time
-    if (data.fetched_at) {
-      const dt = new Date(data.fetched_at);
-      document.getElementById('moonLabel').textContent +=
-        '  ·  synced ' + dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-    }
-
-  } catch (e) {
-    console.warn('data.json fetch failed — using cached/demo count:', e);
-    // Use cached value from localStorage, or demo
-    const cached = parseInt(localStorage.getItem('ig_count') || '0');
-    const display = cached > 0 ? cached : 42;
-    followerCount = display;
-    buildFollowerStars(display);
-    animateCount(display);
-
-    const p = getLunarPhase(), pn = phaseName(p);
-    document.getElementById('moonLabel').textContent =
-      phaseEmoji(pn) + ' ' + pn + (cached === 0 ? '  ·  demo mode' : '  ·  cached');
-  }
-
-  // Show HUD
-  document.getElementById('hud').classList.add('on');
-  document.getElementById('badge').classList.add('on');
-  document.getElementById('pill').classList.add('on');
-
-  // Hide loader
-  const loader = document.getElementById('loader');
-  loader.classList.add('out');
-  setTimeout(() => loader.style.display='none', 1000);
-}
-
-// ═══════════════════════════════════════════
-//  COUNTDOWN
-// ═══════════════════════════════════════════
-setInterval(() => {
-  const left = Math.max(0, nextRefresh - Date.now());
-  const m = String(Math.floor(left/60000)).padStart(2,'0');
-  const s = String(Math.floor((left%60000)/1000)).padStart(2,'0');
-  document.getElementById('cd').textContent = `${m}:${s}`;
-}, 1000);
-
-setInterval(() => {
-  nextRefresh = Date.now() + REFRESH_MS;
-  fetchData();
-}, REFRESH_MS);
-
-// ═══════════════════════════════════════════
-//  BOOT
-// ═══════════════════════════════════════════
-init();
-requestAnimationFrame(drawLoop);
-fetchData();
-</script>
-</body>
-</html>
+if __name__ == "__main__":
+    sys.exit(0 if main() else 1)
