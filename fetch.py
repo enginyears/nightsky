@@ -1,98 +1,104 @@
 #!/usr/bin/env python3
 """
-fetch.py — Fetches @the_enginyears follower count from Instagram.
+fetch.py — Get @the_enginyears follower count via Cloudflare Worker proxy.
 
-Method priority:
-  1. Instagram's internal web profile JSON API  <- most reliable, no login
-  2. instaloader (unauthenticated)              <- fallback #1
-  3. Keep existing count + warn                 <- never write zeros
+Why the proxy? GitHub Actions runs on AWS/Azure IP ranges that Instagram
+blocks. The Cloudflare Worker sits on Cloudflare edge IPs which aren't blocked.
 
-How the internal API works:
-  Instagram's own website calls this endpoint to build the profile page.
-  It's a public JSON endpoint — no authentication header required — but it
-  does need the correct X-IG-App-ID header (the public IG web app identifier,
-  visible in any browser's network tab when you visit instagram.com).
+Setup:
+  1. Deploy cloudflare-worker.js (instructions inside that file, ~5 min)
+  2. Add the worker URL as a GitHub Secret named WORKER_URL
+     (Settings → Secrets and variables → Actions → New repository secret)
+     Value: https://your-worker.your-name.workers.dev
+
+The script tries three methods in order:
+  1. Cloudflare Worker  (works on GitHub Actions — preferred)
+  2. Direct Instagram API  (works locally, blocked on Actions)
+  3. instaloader  (last resort)
 """
 
-import json
-import os
-import sys
-import time
-import urllib.request
-import urllib.error
+import json, os, sys, time, urllib.request, urllib.error
 from datetime import datetime, timezone
 
-# ── config ────────────────────────────────────────────────────────────────────
 USERNAME    = "the_enginyears"
 OUTPUT_FILE = "data.json"
+IG_APP_ID   = "936619743392459"  # Public IG web app ID
 
-# Instagram's public web app ID — baked into instagram.com's JS bundle,
-# visible in any browser's network inspector on the profile page.
-IG_APP_ID   = "936619743392459"
-
-# Realistic browser headers. Instagram checks these and rejects requests
-# that look obviously scripted (empty User-Agent, missing Referer, etc.)
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept":           "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language":  "en-US,en;q=0.9",
-    "X-IG-App-ID":      IG_APP_ID,
-    "X-Requested-With": "XMLHttpRequest",
-    "Referer":          f"https://www.instagram.com/the_enginyears/",
-    "Origin":           "https://www.instagram.com",
-}
+# GitHub Actions passes this from the WORKER_URL secret
+WORKER_URL = os.environ.get("WORKER_URL", "").strip().rstrip("/")
 
 
-def get(url, headers, timeout=15):
-    """Makes an HTTP GET, returns raw bytes or None on any failure."""
+def get(url, headers=None, timeout=20):
+    """HTTP GET → bytes, or None on failure."""
     try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            if resp.info().get("Content-Encoding") == "gzip":
-                import gzip
-                return gzip.decompress(raw)
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+            if r.info().get("Content-Encoding") == "gzip":
+                import gzip; return gzip.decompress(raw)
             return raw
     except urllib.error.HTTPError as e:
         print(f"  HTTP {e.code}: {e.reason}")
     except urllib.error.URLError as e:
-        print(f"  Connection error: {e.reason}")
+        print(f"  URL error: {e.reason}")
     except Exception as e:
-        print(f"  Unexpected: {e}")
+        print(f"  Error: {e}")
     return None
 
 
-def fetch_internal_api():
-    """
-    Calls Instagram's internal web_profile_info endpoint.
-    This is the same endpoint instagram.com calls in your browser —
-    it returns rich JSON including the follower count.
-    Response shape: {"data": {"user": {"edge_followed_by": {"count": N}}}}
-    """
-    url = (
-        f"https://www.instagram.com/api/v1/users/web_profile_info/"
-        f"?username={USERNAME}"
-    )
-    raw = get(url, HEADERS)
+def fetch_worker():
+    """Call our Cloudflare Worker proxy — works from any IP."""
+    if not WORKER_URL:
+        print("  WORKER_URL secret not set — skipping.")
+        return None
+    url = f"{WORKER_URL}/?username={USERNAME}"
+    print(f"  Calling: {url}")
+    raw = get(url)
     if not raw:
         return None
     try:
-        data  = json.loads(raw.decode("utf-8"))
+        data = json.loads(raw)
+        if data.get("ok"):
+            count = data["follower_count"]
+            print(f"  Worker returned: {count:,}")
+            return int(count)
+        print(f"  Worker error: {data.get('error')}")
+    except Exception as e:
+        print(f"  Worker response parse error: {e}")
+    return None
+
+
+def fetch_direct_api():
+    """Call Instagram's internal API directly — blocked on GitHub Actions."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept":           "application/json, */*; q=0.1",
+        "Accept-Language":  "en-US,en;q=0.9",
+        "X-IG-App-ID":      IG_APP_ID,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer":          f"https://www.instagram.com/{USERNAME}/",
+        "Origin":           "https://www.instagram.com",
+    }
+    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={USERNAME}"
+    raw = get(url, headers)
+    if not raw:
+        return None
+    try:
+        data  = json.loads(raw)
         count = data["data"]["user"]["edge_followed_by"]["count"]
-        print(f"  Internal API: {count:,} followers")
+        print(f"  Direct API returned: {count:,}")
         return int(count)
     except (KeyError, TypeError, ValueError) as e:
-        print(f"  JSON shape unexpected: {e}")
-        print(f"  Response preview: {raw[:400]}")
-        return None
+        print(f"  Direct API parse error: {e}")
+        print(f"  Response preview: {(raw or b'')[:300]}")
+    return None
 
 
 def fetch_instaloader():
-    """Uses instaloader's public profile fetch — no login required."""
+    """instaloader fallback — no login needed for public profile."""
     try:
         import instaloader
         L = instaloader.Instaloader(
@@ -101,50 +107,51 @@ def fetch_instaloader():
             download_video_thumbnails=False, download_geotags=False,
             download_comments=False, save_metadata=False,
         )
-        profile = instaloader.Profile.from_username(L.context, USERNAME)
-        print(f"  instaloader: {profile.followers:,} followers")
-        return profile.followers
+        p = instaloader.Profile.from_username(L.context, USERNAME)
+        print(f"  instaloader returned: {p.followers:,}")
+        return p.followers
     except Exception as e:
-        print(f"  instaloader failed: {e}")
-        return None
+        print(f"  instaloader error: {e}")
+    return None
 
 
 def load_existing():
     if os.path.exists(OUTPUT_FILE):
         try:
-            with open(OUTPUT_FILE) as f:
-                return json.load(f)
-        except Exception:
-            pass
+            with open(OUTPUT_FILE) as f: return json.load(f)
+        except Exception: pass
     return {"follower_count": 0}
 
 
 def main():
-    print(f"\n Syncing @{USERNAME}...\n")
+    print(f"\nSyncing @{USERNAME}...\n")
 
-    # Try internal API first
-    print("Method 1: Instagram internal API")
-    count = fetch_internal_api()
+    count = None
 
-    # Fallback to instaloader
+    print("Method 1: Cloudflare Worker")
+    count = fetch_worker()
+
     if count is None:
-        print("\nMethod 2: instaloader")
-        time.sleep(3)
+        print("\nMethod 2: Direct Instagram API")
+        time.sleep(2)
+        count = fetch_direct_api()
+
+    if count is None:
+        print("\nMethod 3: instaloader")
+        time.sleep(2)
         count = fetch_instaloader()
 
-    # Both failed — preserve existing file, do not write zeros
     if count is None:
-        print("\nAll methods failed. Keeping existing data.json unchanged.")
-        print("This is usually a temporary rate-limit on the runner IP.")
-        print("The workflow will retry in 30 minutes automatically.")
+        print("\nAll methods failed — data.json left unchanged.")
+        print("→ Make sure you deployed the Cloudflare Worker and added WORKER_URL secret.")
         return False
 
     existing = load_existing()
     prev     = existing.get("follower_count", 0)
     delta    = count - prev
 
-    if   delta > 0: print(f"\n+{delta} since last run")
-    elif delta < 0: print(f"\n{delta} since last run (shooting stars!)")
+    if   delta > 0: print(f"\n+{delta} since last run ({prev} → {count})")
+    elif delta < 0: print(f"\n{delta} since last run ({prev} → {count}) — shooting stars!")
     else:           print(f"\nNo change ({count:,})")
 
     with open(OUTPUT_FILE, "w") as f:
@@ -156,7 +163,7 @@ def main():
             "fetched_at":     datetime.now(timezone.utc).isoformat(),
         }, f, indent=2)
 
-    print(f"Saved {count:,} followers to {OUTPUT_FILE}")
+    print(f"Saved → {OUTPUT_FILE}")
     return True
 
 
