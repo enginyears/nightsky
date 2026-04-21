@@ -700,7 +700,6 @@ setInterval(() => {
 }, 1000);
 
 setInterval(() => {
-  nextRefresh = Date.now() + REFRESH_MS;
   fetchData();
 }, REFRESH_MS);
 
@@ -713,7 +712,11 @@ fetchData();
 
 document.getElementById('pill').addEventListener('click', async () => {
   document.getElementById('cd').textContent = 'SYNCING...';
+
   await fetchData();
+
+  lastRefresh = Date.now();
+  localStorage.setItem('last_refresh', lastRefresh);
 });
 
 </script>
