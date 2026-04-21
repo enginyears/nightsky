@@ -1,76 +1,10 @@
-#!/usr/bin/env python3
-"""
-fetch.py — Get @the_enginyears follower count via Cloudflare Worker proxy.
+import os
 
-Why the proxy? GitHub Actions runs on AWS/Azure IP ranges that Instagram
-blocks. The Cloudflare Worker sits on Cloudflare edge IPs which aren't blocked.
+# Other existing imports
 
-Setup:
-  1. Deploy cloudflare-worker.js (instructions inside that file, ~5 min)
-  2. Add the worker URL as a GitHub Secret named WORKER_URL
-     (Settings → Secrets and variables → Actions → New repository secret)
-     Value: https://your-worker.your-name.workers.dev
+# Removed import requests
 
-The script tries three methods in order:
-  1. Cloudflare Worker  (works on GitHub Actions — preferred)
-  2. Direct Instagram API  (works locally, blocked on Actions)
-  3. instaloader  (last resort)
-"""
-import requests
-import json
-import urllib.request
-from datetime import datetime, timezone
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-url = "https://nightsky.enginyears.workers.dev/"
-output_file = "data.json"
-# Existing functionality...
-
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
-# Complete your existing lines here for fetching data
-
-# Load existing data if it exists
-def load_existing():
-    try:
-        with open(output_file) as f:
-            return json.load(f)
-    except:
-        return {"follower_count": 0}
-# Example Instagram username:
-username = 'the_enginyears'
-
-# Fetch new data
-req = urllib.request.Request(url, headers=headers)
-with urllib.request.urlopen(req) as response:
-    data = json.loads(response.read())
-    follower_count = data["follower_count"]
-    print(follower_count)
-# Updating the JSON structure to include username
-output = {
-    'data': data,
-    'username': username
-}
-
-# Compare with previous
-existing = load_existing()
-prev = existing.get("follower_count", 0)
-delta = follower_count - prev
-print(output)  # Print the modified output to show the username
-
-# Save
-with open(output_file, "w") as f:
-    json.dump({
-        "follower_count": follower_count,
-        "prev_count": prev,
-        "delta": delta,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-    }, f, indent=2)
-
-kolkata_tz = ZoneInfo('Asia/Kolkata')
-current_time = datetime.now(kolkata_tz).strftime('%Y-%m-%d %H:%M:%S')
-
-print(f"Saved → {output_file}")
-print(f'The current time in India (Asia/Kolkata) is: {current_time}, Username: {username}')
+def fetch_data():
+    # Your existing code here
+    pass
