@@ -56,7 +56,7 @@ with open(output_file, "w") as f:
         "follower_count": follower_count,
         "prev_count": prev,
         "delta": delta,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
     }, f, indent=2)
 
 print(f"Saved → {output_file}")
