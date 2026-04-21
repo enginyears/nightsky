@@ -99,7 +99,19 @@
 <div id="loader"><div class="ring"></div><div class="load-txt">Mapping your galaxy</div></div>
 <canvas id="c"></canvas>
 
-<div id="badge"><div class="dot"></div>@the_enginyears</div>
+<a id="badge" href="https://www.instagram.com/the_enginyears/" target="_blank">
+  <div class="dot"></div>
+  @the_enginyears
+</a>
+ #badge {
+  text-decoration: none;  /* removes underline */
+  color: rgba(150,195,255,.5); /* keeps your original color */
+}
+ #badge:hover {
+  color: rgba(200,230,255,.9);
+  border-color: rgba(120,180,255,.25);
+}
+
 <div id="pill">Next sync <span id="cd">30:00</span></div>
 <div id="hud">
   <div class="hud-sub">Stars in your galaxy</div>
