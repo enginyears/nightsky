@@ -20,20 +20,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install instaloader
-
       - name: Fetch follower count
-        id: fetch
-        env:
-          WORKER_URL: ${{ secrets.WORKER_URL }}
-        run: |
-          python fetch.py \
-            && echo "changed=true" >> $GITHUB_OUTPUT \
-            || echo "changed=false" >> $GITHUB_OUTPUT
+        run: python simple_fetch.py
 
       - name: Commit updated data
-        if: steps.fetch.outputs.changed == 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
