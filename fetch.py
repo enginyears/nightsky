@@ -16,166 +16,44 @@ The script tries three methods in order:
   2. Direct Instagram API  (works locally, blocked on Actions)
   3. instaloader  (last resort)
 """
-
-import json, os, sys, time, urllib.request, urllib.error
+import json
+import urllib.request
 from datetime import datetime, timezone
 
-USERNAME    = "the_enginyears"
-OUTPUT_FILE = "data.json"
-IG_APP_ID   = "936619743392459"  # Public IG web app ID
+url = "https://nightsky.enginyears.workers.dev/"
+output_file = "data.json"
 
-# GitHub Actions passes this from the WORKER_URL secret
-WORKER_URL = os.environ.get("WORKER_URL", "").strip().rstrip("/")
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}
 
-
-def get(url, headers=None, timeout=20):
-    """HTTP GET → bytes, or None on failure."""
-    try:
-        req = urllib.request.Request(url, headers=headers or {})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            raw = r.read()
-            if r.info().get("Content-Encoding") == "gzip":
-                import gzip; return gzip.decompress(raw)
-            return raw
-    except urllib.error.HTTPError as e:
-        print(f"  HTTP {e.code}: {e.reason}")
-    except urllib.error.URLError as e:
-        print(f"  URL error: {e.reason}")
-    except Exception as e:
-        print(f"  Error: {e}")
-    return None
-
-
-def fetch_worker():
-    """Call our Cloudflare Worker proxy — works from any IP."""
-    if not WORKER_URL:
-        print("  WORKER_URL secret not set — skipping.")
-        return None
-    url = f"{WORKER_URL}?username={USERNAME}"
-    print(f"  Calling: {url}")
-    # Must send browser-like headers or Cloudflare's bot protection blocks us
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept":         "application/json, */*",
-        "Accept-Language":"en-US,en;q=0.9",
-        "Referer":        "https://www.instagram.com/",
-    }
-    raw = get(url, headers)
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-        if data.get("ok"):
-            count = data["follower_count"]
-            print(f"  Worker returned: {count:,}")
-            return int(count)
-        print(f"  Worker error: {data.get('error')}")
-    except Exception as e:
-        print(f"  Worker response parse error: {e}")
-    return None
-
-
-def fetch_direct_api():
-    """Call Instagram's internal API directly — blocked on GitHub Actions."""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept":           "application/json, */*; q=0.1",
-        "Accept-Language":  "en-US,en;q=0.9",
-        "X-IG-App-ID":      IG_APP_ID,
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer":          f"https://www.instagram.com/{USERNAME}/",
-        "Origin":           "https://www.instagram.com",
-    }
-    url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={USERNAME}"
-    raw = get(url, headers)
-    if not raw:
-        return None
-    try:
-        data  = json.loads(raw)
-        count = data["data"]["user"]["edge_followed_by"]["count"]
-        print(f"  Direct API returned: {count:,}")
-        return int(count)
-    except (KeyError, TypeError, ValueError) as e:
-        print(f"  Direct API parse error: {e}")
-        print(f"  Response preview: {(raw or b'')[:300]}")
-    return None
-
-
-def fetch_instaloader():
-    """instaloader fallback — no login needed for public profile."""
-    try:
-        import instaloader
-        L = instaloader.Instaloader(
-            quiet=True,
-            download_pictures=False, download_videos=False,
-            download_video_thumbnails=False, download_geotags=False,
-            download_comments=False, save_metadata=False,
-        )
-        p = instaloader.Profile.from_username(L.context, USERNAME)
-        print(f"  instaloader returned: {p.followers:,}")
-        return p.followers
-    except Exception as e:
-        print(f"  instaloader error: {e}")
-    return None
-
-
+# Load existing data if it exists
 def load_existing():
-    if os.path.exists(OUTPUT_FILE):
-        try:
-            with open(OUTPUT_FILE) as f: return json.load(f)
-        except Exception: pass
-    return {"follower_count": 0}
+    try:
+        with open(output_file) as f:
+            return json.load(f)
+    except:
+        return {"follower_count": 0}
 
+# Fetch new data
+req = urllib.request.Request(url, headers=headers)
+with urllib.request.urlopen(req) as response:
+    data = json.loads(response.read())
+    follower_count = data["follower_count"]
+    print(follower_count)
 
-def main():
-    print(f"\nSyncing @{USERNAME}...\n")
+# Compare with previous
+existing = load_existing()
+prev = existing.get("follower_count", 0)
+delta = follower_count - prev
 
-    count = None
+# Save
+with open(output_file, "w") as f:
+    json.dump({
+        "follower_count": follower_count,
+        "prev_count": prev,
+        "delta": delta,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }, f, indent=2)
 
-    print("Method 1: Cloudflare Worker")
-    count = fetch_worker()
-
-    if count is None:
-        print("\nMethod 2: Direct Instagram API")
-        time.sleep(2)
-        count = fetch_direct_api()
-
-    if count is None:
-        print("\nMethod 3: instaloader")
-        time.sleep(2)
-        count = fetch_instaloader()
-
-    if count is None:
-        print("\nAll methods failed — data.json left unchanged.")
-        print("→ Make sure you deployed the Cloudflare Worker and added WORKER_URL secret.")
-        return False
-
-    existing = load_existing()
-    prev     = existing.get("follower_count", 0)
-    delta    = count - prev
-
-    if   delta > 0: print(f"\n+{delta} since last run ({prev} → {count})")
-    elif delta < 0: print(f"\n{delta} since last run ({prev} → {count}) — shooting stars!")
-    else:           print(f"\nNo change ({count:,})")
-
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump({
-            "username":       USERNAME,
-            "follower_count": count,
-            "prev_count":     prev,
-            "delta":          delta,
-            "fetched_at":     datetime.now(timezone.utc).isoformat(),
-        }, f, indent=2)
-
-    print(f"Saved → {OUTPUT_FILE}")
-    return True
-
-
-if __name__ == "__main__":
-    sys.exit(0 if main() else 1)
+print(f"Saved → {output_file}")
