@@ -710,6 +710,12 @@ setInterval(() => {
 init();
 requestAnimationFrame(drawLoop);
 fetchData();
+
+document.getElementById('pill').addEventListener('click', async () => {
+  document.getElementById('cd').textContent = 'SYNCING...';
+  await fetchData();
+});
+
 </script>
 </body>
 </html>
