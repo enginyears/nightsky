@@ -671,8 +671,14 @@ function updateSyncedPill(isoString) {
     minute: '2-digit',
     hour12: true,
   });
-  document.getElementById('cd').innerHTML =
-  `${datePart},<br>${timePart} IST`;
+  const isMobile = window.innerWidth <= 600;
+  if (isMobile) {
+    document.getElementById('cd').innerHTML =
+      `${datePart},<br>${timePart} IST`;
+  } else {
+    document.getElementById('cd').textContent =
+      `${datePart}, ${timePart} IST`;
+  }
 }
 
 async function fetchData() {
