@@ -577,12 +577,12 @@ function drawLoop(ts) {
     const cr = 4.5 + Math.sin(ct) * 1.2;
 
     // Outer glow halo
-    const cg = ctx.createRadialGradient(smx, smy, 0, smx, smy, cr * 6);
+    const cg = ctx.createRadialGradient(mx, my, 0, mx, my, cr * 6);
     cg.addColorStop(0,   'rgba(255,255,220,.55)');
     cg.addColorStop(0.4, 'rgba(220,235,255,.20)');
     cg.addColorStop(1,   'rgba(0,0,0,0)');
     ctx.fillStyle = cg;
-    ctx.beginPath(); ctx.arc(smx, smy, cr * 6, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx, my, cr * 6, 0, Math.PI*2); ctx.fill();
 
     // Four main diffraction spikes
     const spikeLen = cr * 3.8 + Math.sin(ct * 1.3) * 2;
@@ -590,22 +590,22 @@ function drawLoop(ts) {
     ctx.strokeStyle = 'rgba(255,255,220,.70)';
     ctx.lineWidth   = 0.8;
     ctx.beginPath();
-    ctx.moveTo(smx - spikeLen, smy); ctx.lineTo(smx + spikeLen, smy);
-    ctx.moveTo(smx, smy - spikeLen); ctx.lineTo(smx, smy + spikeLen);
+    ctx.moveTo(mx - spikeLen, my); ctx.lineTo(mx + spikeLen, my);
+    ctx.moveTo(mx, my - spikeLen); ctx.lineTo(mx, my + spikeLen);
     ctx.stroke();
     // Four diagonal spikes (dimmer, shorter)
     const dLen = spikeLen * 0.62;
     ctx.strokeStyle = 'rgba(255,255,220,.35)';
     ctx.beginPath();
-    ctx.moveTo(smx - dLen, smy - dLen); ctx.lineTo(smx + dLen, smy + dLen);
-    ctx.moveTo(smx + dLen, smy - dLen); ctx.lineTo(smx - dLen, smy + dLen);
+    ctx.moveTo(mx - dLen, my - dLen); ctx.lineTo(mx + dLen, my + dLen);
+    ctx.moveTo(mx + dLen, my - dLen); ctx.lineTo(mx - dLen, my + dLen);
     ctx.stroke();
     ctx.restore();
 
     // Bright pulsing core
     ctx.globalAlpha = 0.92 + Math.sin(ct) * 0.08;
     ctx.fillStyle   = '#fffef0';
-    ctx.beginPath(); ctx.arc(smx, smy, cr, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx, my, cr, 0, Math.PI*2); ctx.fill();
     ctx.globalAlpha = 1;
   }
 
