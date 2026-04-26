@@ -398,10 +398,10 @@ document.addEventListener('mousemove', e => {
 // ═══════════════════════════════════════════════════════
 //  ATTRACTION PHYSICS CONSTANTS
 // ═══════════════════════════════════════════════════════
-const ATTRACT_RADIUS = 130;  // px — influence zone around cursor
-const ATTRACT_FORCE  = 0.20; // acceleration per frame toward mouse
-const DECAY          = 0.90; // displacement multiplied by this each frame
-const MAX_DISPLACE   = 24;   // px — maximum drift from home position
+const ATTRACT_RADIUS = 150;  // px — influence zone around cursor
+const ATTRACT_FORCE  = 0.55; // acceleration per frame toward mouse
+const DECAY          = 0.78; // displacement multiplied by this each frame
+const MAX_DISPLACE   = 36;   // px — maximum drift from home position
 
 // ═══════════════════════════════════════════════════════
 //  MAIN DRAW LOOP
@@ -663,7 +663,7 @@ function updateSyncedPill(isoString) {
 
 async function fetchData() {
   try {
-    const res  = await fetch('./data.json?t=' + Date.now());
+    const res = await fetch('./data.json?t=' + Date.now(), { cache: 'no-store' }); // cache: 'no-store' forces a real network request every time, no exceptions
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
 
