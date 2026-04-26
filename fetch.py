@@ -41,7 +41,7 @@ def load_existing():
 req = urllib.request.Request(url, headers=headers)
 with urllib.request.urlopen(req) as response:
     data = json.loads(response.read())
-    follower_count = data["follower_count"]
+    follower_count = data["stats"]["followers"]
     print(follower_count)
 
 # Compare with previous
