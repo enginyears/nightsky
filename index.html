@@ -8,13 +8,15 @@
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap" rel="stylesheet"/>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#000; overflow:hidden; font-family:'Cinzel',serif; cursor:crosshair; }
+
+  /* cursor:none hides the OS cursor — we draw our own star cursor on the canvas */
+  body { background:#000; overflow:hidden; font-family:'Cinzel',serif; cursor:none; }
   canvas { display:block; position:fixed; top:0; left:0; }
 
-  /* ── HUD ─────────────────────────────────── */
+  /* ── HUD (bottom centre) ─────────────────── */
   #hud {
     position:fixed; bottom:0; left:50%; transform:translateX(-50%);
-    width:380px; padding:20px 32px 32px;
+    width:420px; padding:20px 32px 32px;
     background:linear-gradient(to top, rgba(0,0,5,.95) 0%, transparent 100%);
     display:flex; flex-direction:column; align-items:center; gap:4px;
     opacity:0; transition:opacity 1s ease 0.8s;
@@ -29,19 +31,20 @@
   }
   .hud-moon { font-size:11px; color:rgba(180,215,255,.5); margin-top:2px; letter-spacing:2px; }
 
-  /* ── Countdown pill ──────────────────────── */
+  /* ── Last-synced pill (top right) ───────── */
   #pill {
     position:fixed; top:20px; right:20px;
     padding:7px 15px; border-radius:999px;
     border:1px solid rgba(100,160,255,.12);
     background:rgba(0,0,8,.6); backdrop-filter:blur(10px);
-    font-size:9px; letter-spacing:3px; color:rgba(120,170,255,.4);
+    font-size:9px; letter-spacing:2px; color:rgba(120,170,255,.4);
     text-transform:uppercase; opacity:0; transition:opacity 1s ease 1s;
+    white-space:nowrap;
   }
   #pill.on { opacity:1; }
   #cd { color:rgba(190,220,255,.7); }
 
-  /* ── Badge ───────────────────────────────── */
+  /* ── Profile badge (top left) ───────────── */
   #badge {
     position:fixed; top:20px; left:20px;
     padding:8px 16px; border-radius:999px;
@@ -50,8 +53,10 @@
     display:flex; align-items:center; gap:9px;
     font-size:10px; letter-spacing:2px; color:rgba(150,195,255,.5);
     opacity:0; transition:opacity 1s ease 1s;
+    text-decoration:none;
   }
   #badge.on { opacity:1; }
+  #badge:hover { color:rgba(200,230,255,.9); border-color:rgba(120,180,255,.25); }
   .dot {
     width:7px; height:7px; border-radius:50%;
     background:rgba(80,220,120,.85);
@@ -60,7 +65,7 @@
   }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
 
-  /* ── Delta flash ─────────────────────────── */
+  /* ── Delta flash (follower change notice) ─ */
   #delta {
     position:fixed; top:50%; left:50%;
     transform:translate(-50%,-50%);
@@ -76,7 +81,7 @@
     100%{ opacity:0; transform:translate(-50%,-68%); }
   }
 
-  /* ── Loader ──────────────────────────────── */
+  /* ── Loading screen ─────────────────────── */
   #loader {
     position:fixed; inset:0; z-index:100;
     background:#000; display:flex; flex-direction:column;
@@ -99,33 +104,25 @@
 <div id="loader"><div class="ring"></div><div class="load-txt">Mapping your galaxy</div></div>
 <canvas id="c"></canvas>
 
-<a id="badge" href="https://www.instagram.com/enginyears.me/" target="_blank">
-  <div class="dot"></div>
-  @enginyears.me
+<a id="badge" href="https://www.instagram.com/enginyears.me/" target="_blank" rel="noopener">
+  <div class="dot"></div>@enginyears.me
 </a>
- #badge {
-  text-decoration: none;  /* removes underline */
-  color: rgba(150,195,255,.5); /* keeps your original color */
-}
- #badge:hover {
-  color: rgba(200,230,255,.9);
-  border-color: rgba(120,180,255,.25);
-}
 
-<div id="pill">Next sync <span id="cd">30:00</span></div>
+<div id="pill">Synced: <span id="cd">—</span></div>
+
 <div id="hud">
   <div class="hud-sub">Stars in your galaxy</div>
   <div class="hud-num" id="numEl">—</div>
   <div class="hud-moon" id="moonLabel">—</div>
 </div>
-<div id="delta" id="deltaEl"></div>
+<div id="delta"></div>
 
 <script>
 'use strict';
 
-// ═══════════════════════════════════════════
-//  SETUP
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  CANVAS SETUP
+// ═══════════════════════════════════════════════════════
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 let W = 0, H = 0;
@@ -137,9 +134,9 @@ function resize() {
 resize();
 window.addEventListener('resize', () => { resize(); init(); });
 
-// ═══════════════════════════════════════════
-//  SEEDED PRNG  (mulberry32)
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  SEEDED PRNG (mulberry32)
+// ═══════════════════════════════════════════════════════
 function mkRng(seed) {
   return () => {
     let t = (seed += 0x6D2B79F5);
@@ -149,15 +146,15 @@ function mkRng(seed) {
   };
 }
 
-// ═══════════════════════════════════════════
-//  MOON — always drawn prominently
-// ═══════════════════════════════════════════
-const MOON_REF_MS  = new Date('2000-01-06T18:14:00Z').getTime();
-const LUNAR_CYCLE  = 29.530588853 * 86400000;
+// ═══════════════════════════════════════════════════════
+//  LUNAR PHASE
+// ═══════════════════════════════════════════════════════
+const MOON_REF_MS = new Date('2000-01-06T18:14:00Z').getTime();
+const LUNAR_CYCLE = 29.530588853 * 86400000;
 
 function getLunarPhase() {
   const elapsed = ((Date.now() - MOON_REF_MS) % LUNAR_CYCLE + LUNAR_CYCLE) % LUNAR_CYCLE;
-  return elapsed / LUNAR_CYCLE; // 0=new, 0.5=full
+  return elapsed / LUNAR_CYCLE;
 }
 
 const PHASE_NAMES = [
@@ -165,14 +162,16 @@ const PHASE_NAMES = [
   [0.4375,'Waxing Gibbous'],[0.5625,'Full Moon'],[0.6875,'Waning Gibbous'],
   [0.8125,'Last Quarter'],[0.9375,'Waning Crescent'],[1,'New Moon'],
 ];
-function phaseName(p) { return (PHASE_NAMES.find(([m])=>p<=m)||PHASE_NAMES.at(-1))[1]; }
+function phaseName(p) { return (PHASE_NAMES.find(([m]) => p <= m) || PHASE_NAMES.at(-1))[1]; }
 function phaseEmoji(n) {
   return {'New Moon':'🌑','Waxing Crescent':'🌒','First Quarter':'🌓',
     'Waxing Gibbous':'🌔','Full Moon':'🌕','Waning Gibbous':'🌖',
-    'Last Quarter':'🌗','Waning Crescent':'🌘'}[n]||'🌑';
+    'Last Quarter':'🌗','Waning Crescent':'🌘'}[n] || '🌑';
 }
 
-// Build moon on an offscreen canvas — cached and reused
+// ═══════════════════════════════════════════════════════
+//  MOON RENDERER (offscreen canvas, cached)
+// ═══════════════════════════════════════════════════════
 let moonCache = null, cachedPhase = -1;
 
 function buildMoonCanvas(R, phase) {
@@ -185,7 +184,6 @@ function buildMoonCanvas(R, phase) {
   const o  = oc.getContext('2d');
   const cx = SZ / 2, cy = SZ / 2;
 
-  // ── lit surface ──────────────────────────────
   const sg = o.createRadialGradient(cx - R*.3, cy - R*.32, 0, cx, cy, R);
   sg.addColorStop(0,   '#ffffff');
   sg.addColorStop(0.3, '#f4ecda');
@@ -194,7 +192,6 @@ function buildMoonCanvas(R, phase) {
   o.beginPath(); o.arc(cx, cy, R, 0, Math.PI*2);
   o.fillStyle = sg; o.fill();
 
-  // ── mare (dark regions) ───────────────────────
   [
     [-0.08,-0.22, 0.30,'50,40,22,.42'],
     [ 0.22,-0.06, 0.24,'45,36,18,.38'],
@@ -204,61 +201,54 @@ function buildMoonCanvas(R, phase) {
     [-0.32,-0.28, 0.12,'44,36,18,.25'],
   ].forEach(([dx,dy,dr,col]) => {
     const g = o.createRadialGradient(cx+dx*R,cy+dy*R,0,cx+dx*R,cy+dy*R,dr*R);
-    g.addColorStop(0, `rgba(${col})`);
-    g.addColorStop(0.55, `rgba(${col.replace(/[\d.]+\)$/,'.1)')}`);
+    g.addColorStop(0, 'rgba('+col+')');
+    g.addColorStop(0.55, 'rgba('+col.replace(/[\d.]+\)$/, '.1)')+')');
     g.addColorStop(1, 'rgba(0,0,0,0)');
-    o.beginPath(); o.arc(cx+dx*R,cy+dy*R,dr*R,0,Math.PI*2);
-    o.fillStyle=g; o.fill();
+    o.beginPath(); o.arc(cx+dx*R, cy+dy*R, dr*R, 0, Math.PI*2);
+    o.fillStyle = g; o.fill();
   });
 
-  // ── craters ────────────────────────────────────
   [[.38,-.50,.06],[-.40,-.36,.05],[.26,.46,.05],
    [-.18,.48,.04],[.52,.14,.04],[-.48,.10,.05],
    [.10,-.58,.05],[.48,-.28,.04],[-.06,.22,.03]
   ].forEach(([dx,dy,dr]) => {
     const r=dr*R, x=cx+dx*R, y=cy+dy*R;
-    const rim=o.createRadialGradient(x-r*.3,y-r*.3,0,x,y,r*1.1);
+    const rim = o.createRadialGradient(x-r*.3,y-r*.3,0,x,y,r*1.1);
     rim.addColorStop(0,'rgba(255,245,220,.22)');
     rim.addColorStop(0.7,'rgba(100,82,48,.16)');
     rim.addColorStop(1,'rgba(0,0,0,0)');
     o.beginPath(); o.arc(x,y,r*1.1,0,Math.PI*2); o.fillStyle=rim; o.fill();
-    const bowl=o.createRadialGradient(x,y,0,x,y,r);
+    const bowl = o.createRadialGradient(x,y,0,x,y,r);
     bowl.addColorStop(0,'rgba(40,32,14,.58)');
     bowl.addColorStop(0.6,'rgba(70,56,28,.32)');
     bowl.addColorStop(1,'rgba(0,0,0,0)');
     o.beginPath(); o.arc(x,y,r,0,Math.PI*2); o.fillStyle=bowl; o.fill();
   });
 
-  // ── limb darkening ─────────────────────────────
   const ld = o.createRadialGradient(cx,cy,R*.65,cx,cy,R);
   ld.addColorStop(0,'rgba(0,0,0,0)'); ld.addColorStop(1,'rgba(0,0,0,.38)');
   o.save(); o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
-  o.fillStyle=ld; o.fillRect(0,0,SZ,SZ); o.restore();
+  o.fillStyle = ld; o.fillRect(0,0,SZ,SZ); o.restore();
 
-  // ── shadow / phase ────────────────────────────
-  // new moon: paint full dark
   if (phase <= 0.03 || phase >= 0.97) {
     o.save(); o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
-    // Very dark but not totally black — faint earthshine
     const es = o.createRadialGradient(cx,cy,0,cx,cy,R);
     es.addColorStop(0,'rgba(8,16,40,.92)'); es.addColorStop(1,'rgba(2,4,14,.97)');
-    o.fillStyle=es; o.fillRect(0,0,SZ,SZ); o.restore();
+    o.fillStyle = es; o.fillRect(0,0,SZ,SZ); o.restore();
   } else {
-    // elliptical terminator via bezier
-    const ex = R * Math.cos(2*Math.PI*phase); // > 0 = crescent shadow, < 0 = gibbous
+    const ex = R * Math.cos(2 * Math.PI * phase);
     const waxing = phase < 0.5;
     o.save();
     o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
     o.fillStyle = 'rgba(2,4,12,.96)';
     o.beginPath();
     o.moveTo(cx, cy - R);
-    o.arc(cx, cy, R, -Math.PI/2, Math.PI/2, waxing);       // dark semicircle
-    o.bezierCurveTo(cx+(4/3)*ex, cy+R, cx+(4/3)*ex, cy-R, cx, cy-R); // terminator
+    o.arc(cx, cy, R, -Math.PI/2, Math.PI/2, waxing);
+    o.bezierCurveTo(cx+(4/3)*ex, cy+R, cx+(4/3)*ex, cy-R, cx, cy-R);
     o.fill();
     o.restore();
   }
 
-  // ── atmosphere glow rim ────────────────────────
   const rim = o.createRadialGradient(cx,cy,R-1,cx,cy,R+10);
   rim.addColorStop(0,'rgba(210,230,255,.15)');
   rim.addColorStop(0.5,'rgba(180,210,255,.07)');
@@ -269,23 +259,19 @@ function buildMoonCanvas(R, phase) {
   return oc;
 }
 
-// ═══════════════════════════════════════════
-//  STAR ARRAYS
-// ═══════════════════════════════════════════
-let bgStars  = [];   // background ambient field
-let folStars = [];   // follower stars (exactly followerCount)
-
-// Spectral class colours weighted by stellar frequency
+// ═══════════════════════════════════════════════════════
+//  SPECTRAL STAR COLOURS
+// ═══════════════════════════════════════════════════════
 const SPECTRAL = [
-  [3,  '#b4d0ff'],  // O/B blue-white
-  [9,  '#ddeeff'],  // A   white
-  [20, '#fff7e8'],  // F   yellow-white
-  [30, '#fffbe4'],  // G   sun-like
-  [22, '#ffd898'],  // K   orange
-  [13, '#ffb068'],  // M   red-orange
-  [3,  '#ff8050'],  // M-  deep red
+  [3,  '#b4d0ff'],
+  [9,  '#ddeeff'],
+  [20, '#fff7e8'],
+  [30, '#fffbe4'],
+  [22, '#ffd898'],
+  [13, '#ffb068'],
+  [3,  '#ff8050'],
 ];
-const S_TOTAL = SPECTRAL.reduce((a,[w])=>a+w,0);
+const S_TOTAL = SPECTRAL.reduce((a,[w]) => a+w, 0);
 
 function pickColor(r) {
   let acc = 0;
@@ -296,13 +282,19 @@ function pickColor(r) {
   return SPECTRAL.at(-1)[1];
 }
 
+// ═══════════════════════════════════════════════════════
+//  STAR ARRAYS
+// ═══════════════════════════════════════════════════════
+let bgStars  = [];
+let folStars = [];
+
 function buildBgStars() {
   const rng = mkRng(0xABCD1234);
   const n   = Math.floor(W * H / 2400) + 80;
   bgStars = Array.from({length: n}, () => ({
-    x:  rng() * W,
-    y:  rng() * H,
-    r:  rng() * 0.95 + 0.15,
+    x:   rng() * W,
+    y:   rng() * H,
+    r:   rng() * 0.95 + 0.15,
     col: pickColor(rng()),
     al:  rng() * 0.5 + 0.3,
     sp:  rng() * 0.8 + 0.25,
@@ -312,13 +304,12 @@ function buildBgStars() {
 
 function buildFollowerStars(count) {
   const rng = mkRng(0xF01100FF);
-  const mx  = W * 0.38, my = H * 0.40;  // moon position
+  const mx  = W * 0.38, my = H * 0.40;
   const MR  = Math.round(Math.min(W,H) * 0.125);
 
   folStars = [];
   for (let i = 0; i < count; i++) {
     let x, y, attempts = 0;
-    // Keep re-rolling until the star is outside the moon zone
     do {
       x = rng() * W;
       y = rng() * H;
@@ -327,18 +318,22 @@ function buildFollowerStars(count) {
 
     folStars.push({
       x, y,
-      r: Math.pow(rng(), 0.5) * 4 + 0.5,
+      r:   Math.pow(rng(), 0.5) * 4 + 0.5,
       col: pickColor(rng()),
-      al: rng() * 0.6 + 0.5,
+      al:  rng() * 0.6 + 0.5,
       sp:  rng() * 1.1 + 0.4,
       ph:  rng() * Math.PI * 2,
+      // Attraction displacement — starts at zero, grows when mouse is near,
+      // decays back to zero when mouse moves away (exponential decay)
+      dx:  0,
+      dy:  0,
     });
   }
 }
 
-// ═══════════════════════════════════════════
-//  MILKY WAY  (static, seeded)
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  MILKY WAY
+// ═══════════════════════════════════════════════════════
 let mwStars = [];
 function buildMilkyWay() {
   const rng = mkRng(0x77AA00BB);
@@ -352,63 +347,75 @@ function buildMilkyWay() {
     const angle = -0.34;
     const bx = along * Math.cos(angle) - across * Math.sin(angle) - W * 0.05;
     const by = along * Math.sin(angle) + across * Math.cos(angle) - H * 0.1;
-    mwStars.push({
-      x:  bx, y:  by,
-      r:  rng() * 0.5 + 0.06,
-      al: fade * (rng() * 0.14 + 0.03),
-    });
+    mwStars.push({ x: bx, y: by, r: rng() * 0.5 + 0.06, al: fade * (rng() * 0.14 + 0.03) });
   }
 }
 
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 //  SHOOTING STARS
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 let shots = [];
-let lossQueue = 0;
+let lossQueue    = 0;
 let lastAutoShot = 0;
 
 function fireShot(isLoss) {
   const angle = (Math.random() * 30 - 8) * Math.PI / 180;
   const speed = isLoss ? 13 + Math.random()*7 : 7 + Math.random()*8;
   shots.push({
-    x: Math.random() * W * 0.72,
-    y: Math.random() * H * 0.48,
-    vx: Math.cos(angle) * speed,
-    vy: Math.sin(angle + 0.3) * speed,
+    x: Math.random() * W * 0.72, y: Math.random() * H * 0.48,
+    vx: Math.cos(angle) * speed,  vy: Math.sin(angle + 0.3) * speed,
     life: 1,
     decay: isLoss ? 0.016 : 0.020 + Math.random()*.008,
-    w:  isLoss ? 2.4 : 1.6,
+    w: isLoss ? 2.4 : 1.6,
     rgb: isLoss ? '160,210,255' : '255,255,255',
     tail: isLoss ? 20 : 12,
   });
 }
 
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 //  AURORA
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 const AURORA = [
   {rgb:'80,220,140', ph:0,   sp:0.20},
   {rgb:'50,160,230', ph:2.1, sp:0.16},
   {rgb:'140,80,220', ph:4.4, sp:0.25},
 ];
 
-// ═══════════════════════════════════════════
-//  PARALLAX
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  MOUSE TRACKING
+//  Raw mouse (mx, my) jumps instantly.
+//  Smoothed mouse (smx, smy) lerps toward it each frame.
+//  This one variable makes both parallax and attraction feel natural.
+// ═══════════════════════════════════════════════════════
 let mx = 0, my = 0, smx = 0, smy = 0;
-document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+let mouseEnteredPage = false;
 
-// ═══════════════════════════════════════════
-//  DRAW LOOP
-// ═══════════════════════════════════════════
+document.addEventListener('mousemove', e => {
+  mx = e.clientX; my = e.clientY;
+  mouseEnteredPage = true;
+});
+
+// ═══════════════════════════════════════════════════════
+//  ATTRACTION PHYSICS CONSTANTS
+// ═══════════════════════════════════════════════════════
+const ATTRACT_RADIUS = 130;  // px — influence zone around cursor
+const ATTRACT_FORCE  = 0.20; // acceleration per frame toward mouse
+const DECAY          = 0.90; // displacement multiplied by this each frame
+const MAX_DISPLACE   = 24;   // px — maximum drift from home position
+
+// ═══════════════════════════════════════════════════════
+//  MAIN DRAW LOOP
+// ═══════════════════════════════════════════════════════
 function drawLoop(ts) {
   const t = ts / 1000;
+
+  // Lerp smoothed mouse 4% toward real mouse per frame
   smx += (mx - smx) * 0.04;
   smy += (my - smy) * 0.04;
 
   ctx.clearRect(0, 0, W, H);
 
-  // ── sky gradient ────────────────────────────
+  // Sky
   const sky = ctx.createRadialGradient(W*.38, H*.40, 0, W*.5, H*.5, Math.hypot(W,H)*.65);
   sky.addColorStop(0,    '#0d1838');
   sky.addColorStop(0.30, '#070d20');
@@ -416,21 +423,21 @@ function drawLoop(ts) {
   sky.addColorStop(1,    '#010306');
   ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
 
-  // ── nebulae ──────────────────────────────────
+  // Nebulae
   [
-    {x:W*.78,y:H*.12,r:H*.50,rgb:'55,25,160', a:.065},
-    {x:W*.12,y:H*.72,r:H*.42,rgb:'15,55,155', a:.070},
-    {x:W*.90,y:H*.78,r:H*.38,rgb:'135,20,85', a:.055},
-    {x:W*.50,y:H*.02,r:H*.32,rgb:'18,95,78',  a:.050},
-    {x:W*.03,y:H*.30,r:H*.26,rgb:'65,18,115', a:.048},
+    {x:W*.78, y:H*.12, r:H*.50, rgb:'55,25,160',  a:.065},
+    {x:W*.12, y:H*.72, r:H*.42, rgb:'15,55,155',  a:.070},
+    {x:W*.90, y:H*.78, r:H*.38, rgb:'135,20,85',  a:.055},
+    {x:W*.50, y:H*.02, r:H*.32, rgb:'18,95,78',   a:.050},
+    {x:W*.03, y:H*.30, r:H*.26, rgb:'65,18,115',  a:.048},
   ].forEach(n => {
     const g = ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);
-    g.addColorStop(0,`rgba(${n.rgb},${n.a})`);
-    g.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fill();
+    g.addColorStop(0, 'rgba('+n.rgb+','+n.a+')');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fill();
   });
 
-  // ── milky way ────────────────────────────────
+  // Milky Way
   mwStars.forEach(s => {
     ctx.globalAlpha = s.al;
     ctx.fillStyle   = '#fff';
@@ -438,111 +445,115 @@ function drawLoop(ts) {
   });
   ctx.globalAlpha = 1;
 
-  // ── aurora ───────────────────────────────────
+  // Aurora
   {
     const baseY = H * 0.80;
     AURORA.forEach(({ rgb, ph, sp }) => {
       const a = 0.026 + Math.sin(t * sp + ph) * 0.016;
       const g = ctx.createLinearGradient(0, baseY - 40, 0, H);
-      g.addColorStop(0, `rgba(${rgb},0)`);
-      g.addColorStop(.25, `rgba(${rgb},${a.toFixed(3)})`);
-      g.addColorStop(.65, `rgba(${rgb},${(a*.55).toFixed(3)})`);
-      g.addColorStop(1,  `rgba(${rgb},0)`);
+      g.addColorStop(0,   'rgba('+rgb+',0)');
+      g.addColorStop(.25, 'rgba('+rgb+','+a.toFixed(3)+')');
+      g.addColorStop(.65, 'rgba('+rgb+','+(a*.55).toFixed(3)+')');
+      g.addColorStop(1,   'rgba('+rgb+',0)');
       ctx.save();
       ctx.fillStyle = g;
       ctx.beginPath();
-      let startY = baseY + Math.sin(t * sp + ph) * 14;
-      ctx.moveTo(0, startY);
-      const segs = 8;
-      for (let i = 0; i <= segs; i++) {
-        const px = (i / segs) * W;
-        const py = baseY + Math.sin(t * sp + ph + px * 0.004) * 18;
-        ctx.lineTo(px, py);
+      ctx.moveTo(0, baseY + Math.sin(t * sp + ph) * 14);
+      for (let i = 0; i <= 8; i++) {
+        const px = (i / 8) * W;
+        ctx.lineTo(px, baseY + Math.sin(t * sp + ph + px * 0.004) * 18);
       }
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
       ctx.fill(); ctx.restore();
     });
   }
 
-  // ── background stars ─────────────────────────
+  // Background stars
   bgStars.forEach(s => {
-    // subtle parallax (layer 0 = no shift, could add depth later)
-    const tw  = Math.sin(t * s.sp + s.ph) * 0.18 + 0.82;
-    const al  = s.al * tw;
-    ctx.globalAlpha = al;
+    const tw = Math.sin(t * s.sp + s.ph) * 0.18 + 0.82;
+    ctx.globalAlpha = s.al * tw;
     ctx.fillStyle   = s.col;
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
   });
   ctx.globalAlpha = 1;
 
-  // ── follower stars (the important ones!) ─────
+  // Follower stars with mouse attraction
   folStars.forEach(s => {
-    // parallax offset
-    const ox  = (smx - W/2) * 0.008;
-    const oy  = (smy - H/2) * 0.008;
-    const px  = ((s.x + ox) % W + W) % W;
-    const py  = ((s.y + oy) % H + H) % H;
+    // Step 1: compute parallax-shifted base position
+    const ox = (smx - W/2) * 0.008;
+    const oy = (smy - H/2) * 0.008;
+    const bx = ((s.x + ox) % W + W) % W;
+    const by = ((s.y + oy) % H + H) % H;
+
+    // Step 2: mouse attraction — nudge dx/dy toward the mouse if it's close enough
+    const dist = Math.hypot(smx - (bx + s.dx), smy - (by + s.dy));
+    if (dist < ATTRACT_RADIUS && dist > 1) {
+      const strength = ATTRACT_FORCE * (1 - dist / ATTRACT_RADIUS);
+      s.dx += ((smx - bx) / dist) * strength * 12;
+      s.dy += ((smy - by) / dist) * strength * 12;
+      const mag = Math.hypot(s.dx, s.dy);
+      if (mag > MAX_DISPLACE) { s.dx = s.dx/mag * MAX_DISPLACE; s.dy = s.dy/mag * MAX_DISPLACE; }
+    }
+
+    // Step 3: exponential decay — displacement drifts back to zero when mouse leaves
+    s.dx *= DECAY;
+    s.dy *= DECAY;
+
+    // Step 4: final position = parallax base + attraction displacement
+    const px = bx + s.dx;
+    const py = by + s.dy;
 
     const tw  = Math.sin(t * s.sp + s.ph) * 0.20 + 0.80;
     const al  = s.al * tw;
     const rad = s.r * (1 + Math.sin(t * s.sp + s.ph) * 0.08);
 
-    // glow halo (draw before the dot)
     if (rad > 0.8) {
-      const g = ctx.createRadialGradient(px, py, 0, px, py, rad * 5);
-      // Parse hex color to rgba safely
       const hex = s.col.slice(1);
-      const r8  = parseInt(hex.slice(0,2),16);
-      const g8  = parseInt(hex.slice(2,4),16);
-      const b8  = parseInt(hex.slice(4,6),16);
-      g.addColorStop(0, `rgba(${r8},${g8},${b8},${(al * 0.28).toFixed(3)})`);
+      const r8  = parseInt(hex.slice(0,2), 16);
+      const g8  = parseInt(hex.slice(2,4), 16);
+      const b8  = parseInt(hex.slice(4,6), 16);
+      const g = ctx.createRadialGradient(px, py, 0, px, py, rad * 5);
+      g.addColorStop(0, 'rgba('+r8+','+g8+','+b8+','+(al * 0.28).toFixed(3)+')');
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.globalAlpha = 1;
       ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(px, py, rad*5, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px, py, rad * 5, 0, Math.PI*2); ctx.fill();
     }
 
-    // core dot
     ctx.globalAlpha = al;
     ctx.fillStyle   = s.col;
     ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI*2); ctx.fill();
     ctx.globalAlpha = 1;
   });
 
-  // ── shooting stars ────────────────────────────
-  if (t - lastAutoShot > 8 + Math.random() * 16) {
-    lastAutoShot = t;
-    fireShot(false);
-  }
+  // Shooting stars
+  if (t - lastAutoShot > 8 + Math.random() * 16) { lastAutoShot = t; fireShot(false); }
   if (lossQueue > 0) { fireShot(true); lossQueue--; }
+
   shots.forEach(s => {
     s.x += s.vx; s.y += s.vy; s.life -= s.decay;
     if (s.life <= 0) return;
     const life = Math.max(0.001, s.life);
-    const tail = ctx.createLinearGradient(
-      s.x, s.y,
-      s.x - s.vx * s.tail, s.y - s.vy * s.tail
-    );
-    tail.addColorStop(0, `rgba(${s.rgb},${(life*.88).toFixed(3)})`);
+    const tail = ctx.createLinearGradient(s.x, s.y, s.x - s.vx*s.tail, s.y - s.vy*s.tail);
+    tail.addColorStop(0, 'rgba('+s.rgb+','+(life*.88).toFixed(3)+')');
     tail.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.save();
     ctx.strokeStyle = tail; ctx.lineWidth = s.w * life;
-    ctx.beginPath(); ctx.moveTo(s.x,s.y);
-    ctx.lineTo(s.x-s.vx*s.tail, s.y-s.vy*s.tail);
+    ctx.beginPath(); ctx.moveTo(s.x, s.y);
+    ctx.lineTo(s.x - s.vx*s.tail, s.y - s.vy*s.tail);
     ctx.stroke();
-    ctx.fillStyle = `rgba(255,255,255,${(life*.8).toFixed(3)})`;
+    ctx.fillStyle = 'rgba(255,255,255,'+(life*.8).toFixed(3)+')';
     ctx.beginPath(); ctx.arc(s.x, s.y, s.w * 0.8 * life, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   });
   shots = shots.filter(s => s.life > 0);
 
-  // ── moon ─────────────────────────────────────
-  const MR   = Math.round(Math.min(W, H) * 0.125);
-  const MCX  = W * 0.38;
-  const MCY  = H * 0.40;
+  // Moon
+  const MR    = Math.round(Math.min(W, H) * 0.125);
+  const MCX   = W * 0.38;
+  const MCY   = H * 0.40;
   const phase = getLunarPhase();
 
-  // Large ambient glow (always visible, even on new moon)
   const glow1 = ctx.createRadialGradient(MCX, MCY, 0, MCX, MCY, MR * 5);
   glow1.addColorStop(0,   'rgba(200,225,255,.10)');
   glow1.addColorStop(0.4, 'rgba(180,210,255,.05)');
@@ -550,7 +561,6 @@ function drawLoop(ts) {
   ctx.fillStyle = glow1;
   ctx.beginPath(); ctx.arc(MCX, MCY, MR * 5, 0, Math.PI*2); ctx.fill();
 
-  // Tighter warm glow
   const glow2 = ctx.createRadialGradient(MCX, MCY, MR*.5, MCX, MCY, MR*2.2);
   glow2.addColorStop(0,   'rgba(255,240,200,.12)');
   glow2.addColorStop(0.5, 'rgba(200,220,255,.06)');
@@ -558,16 +568,53 @@ function drawLoop(ts) {
   ctx.fillStyle = glow2;
   ctx.beginPath(); ctx.arc(MCX, MCY, MR*2.2, 0, Math.PI*2); ctx.fill();
 
-  // Moon surface
   const mc = buildMoonCanvas(MR, phase);
   ctx.drawImage(mc, MCX - mc.width/2, MCY - mc.height/2);
+
+  // Custom star cursor — only after mouse has entered the page
+  if (mouseEnteredPage) {
+    const ct = t * 2.5;
+    const cr = 4.5 + Math.sin(ct) * 1.2;
+
+    // Outer glow halo
+    const cg = ctx.createRadialGradient(smx, smy, 0, smx, smy, cr * 6);
+    cg.addColorStop(0,   'rgba(255,255,220,.55)');
+    cg.addColorStop(0.4, 'rgba(220,235,255,.20)');
+    cg.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(smx, smy, cr * 6, 0, Math.PI*2); ctx.fill();
+
+    // Four main diffraction spikes
+    const spikeLen = cr * 3.8 + Math.sin(ct * 1.3) * 2;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,220,.70)';
+    ctx.lineWidth   = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(smx - spikeLen, smy); ctx.lineTo(smx + spikeLen, smy);
+    ctx.moveTo(smx, smy - spikeLen); ctx.lineTo(smx, smy + spikeLen);
+    ctx.stroke();
+    // Four diagonal spikes (dimmer, shorter)
+    const dLen = spikeLen * 0.62;
+    ctx.strokeStyle = 'rgba(255,255,220,.35)';
+    ctx.beginPath();
+    ctx.moveTo(smx - dLen, smy - dLen); ctx.lineTo(smx + dLen, smy + dLen);
+    ctx.moveTo(smx + dLen, smy - dLen); ctx.lineTo(smx - dLen, smy + dLen);
+    ctx.stroke();
+    ctx.restore();
+
+    // Bright pulsing core
+    ctx.globalAlpha = 0.92 + Math.sin(ct) * 0.08;
+    ctx.fillStyle   = '#fffef0';
+    ctx.beginPath(); ctx.arc(smx, smy, cr, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
 
   requestAnimationFrame(drawLoop);
 }
 
-// ═══════════════════════════════════════════
-//  INITIALISE SCENE
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  SCENE INIT
+// ═══════════════════════════════════════════════════════
 let followerCount = parseInt(localStorage.getItem('ig_count') || '0');
 
 function init() {
@@ -576,11 +623,11 @@ function init() {
   buildFollowerStars(followerCount);
 }
 
-// ═══════════════════════════════════════════
-//  COUNT ANIMATION
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  ANIMATED COUNTER
+// ═══════════════════════════════════════════════════════
 function animateCount(target) {
-  const el  = document.getElementById('numEl');
+  const el   = document.getElementById('numEl');
   const from = parseInt(el.textContent.replace(/,/g,'')) || 0;
   const dur  = 1200;
   const t0   = performance.now();
@@ -592,25 +639,31 @@ function animateCount(target) {
   })(performance.now());
 }
 
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 //  DATA FETCH
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 const REFRESH_MS = 30 * 60 * 1000;
-let lastRefresh = parseInt(localStorage.getItem('last_refresh') || '0');
 
-// if first time, initialize properly
-if (!lastRefresh) {
-  lastRefresh = Date.now();
-  localStorage.setItem('last_refresh', lastRefresh);
-}
-
-function getNextRefresh() {
-  return lastRefresh + REFRESH_MS;
+function updateSyncedPill(isoString) {
+  if (!isoString) return;
+  // toLocaleString with timeZone:'Asia/Kolkata' auto-converts UTC to IST (UTC+5:30).
+  // The browser's Intl API handles this — no manual offset arithmetic needed.
+  const dt  = new Date(isoString);
+  const ist = dt.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day:      '2-digit',
+    month:    'short',
+    year:     'numeric',
+    hour:     '2-digit',
+    minute:   '2-digit',
+    hour12:   true,
+  });
+  document.getElementById('cd').textContent = ist + ' IST';
 }
 
 async function fetchData() {
   try {
-    const res  = await fetch(`./data.json?t=${Date.now()}`);
+    const res  = await fetch('./data.json?t=' + Date.now());
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
 
@@ -618,107 +671,67 @@ async function fetchData() {
     const prevCount = parseInt(localStorage.getItem('ig_count') || '0');
     const delta     = newCount - prevCount;
 
-    // Only update if we got a real number
     if (newCount > 0) {
       localStorage.setItem('ig_count', newCount);
       followerCount = newCount;
       buildFollowerStars(newCount);
       animateCount(newCount);
 
-      // Show delta effect
       if (prevCount > 0 && delta !== 0) {
         const el = document.getElementById('delta');
         el.className = '';
         if (delta > 0) {
-          el.textContent = `+${delta} ✦`;
+          el.textContent = '+' + delta + ' ✦';
           void el.offsetWidth;
           el.className = 'gain';
         } else {
-          el.textContent = `${delta} ·`;
+          el.textContent = delta + ' ·';
           lossQueue = Math.min(Math.abs(delta), 10);
           void el.offsetWidth;
           el.className = 'loss';
         }
       }
     } else if (prevCount > 0) {
-      // data.json still shows 0 (not updated yet) — show cached count
       animateCount(prevCount);
-      document.getElementById('numEl').textContent = prevCount.toLocaleString() + ' ✦';
     }
 
-    // Moon phase label
     const p  = getLunarPhase();
     const pn = phaseName(p);
     document.getElementById('moonLabel').textContent =
-      phaseEmoji(pn) + ' ' + pn + '  ·  ' +
-      Math.round(p * 100) + '% of cycle';
+      phaseEmoji(pn) + ' ' + pn + '  ·  ' + Math.round(p * 100) + '% of cycle';
 
-    // Updated time
-    if (data.fetched_at) {
-      const dt = new Date(data.fetched_at);
-      document.getElementById('moonLabel').textContent +=
-        '  ·  synced ' + dt.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
-    }
+    updateSyncedPill(data.fetched_at);
 
   } catch (e) {
-    console.warn('data.json fetch failed — using cached/demo count:', e);
-    // Use cached value from localStorage, or demo
-    const cached = parseInt(localStorage.getItem('ig_count') || '0');
+    console.warn('data.json unavailable:', e);
+    const cached  = parseInt(localStorage.getItem('ig_count') || '0');
     const display = cached > 0 ? cached : 42;
     followerCount = display;
     buildFollowerStars(display);
     animateCount(display);
-
     const p = getLunarPhase(), pn = phaseName(p);
     document.getElementById('moonLabel').textContent =
       phaseEmoji(pn) + ' ' + pn + (cached === 0 ? '  ·  demo mode' : '  ·  cached');
+    document.getElementById('cd').textContent = 'unavailable';
   }
 
-  // Show HUD
   document.getElementById('hud').classList.add('on');
   document.getElementById('badge').classList.add('on');
   document.getElementById('pill').classList.add('on');
 
-  // Hide loader
   const loader = document.getElementById('loader');
   loader.classList.add('out');
-  setTimeout(() => loader.style.display='none', 1000);
-  lastRefresh = Date.now();
-  localStorage.setItem('last_refresh', lastRefresh);
+  setTimeout(() => loader.style.display = 'none', 1000);
 }
 
-// ═══════════════════════════════════════════
-//  COUNTDOWN
-// ═══════════════════════════════════════════
-setInterval(() => {
-  const left = Math.max(0, getNextRefresh() - Date.now());
+setInterval(fetchData, REFRESH_MS);
 
-  const m = String(Math.floor(left / 60000)).padStart(2, '0');
-  const s = String(Math.floor((left % 60000) / 1000)).padStart(2, '0');
-
-  document.getElementById('cd').textContent = `${m}:${s}`;
-}, 1000);
-
-setInterval(() => {
-  fetchData();
-}, REFRESH_MS);
-
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 //  BOOT
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 init();
 requestAnimationFrame(drawLoop);
 fetchData();
-
-document.getElementById('pill').addEventListener('click', async () => {
-  document.getElementById('cd').textContent = 'SYNCING...';
-
-  await fetchData();
-
-  lastRefresh = Date.now();
-  localStorage.setItem('last_refresh', lastRefresh);
-});
-
 </script>
 </body>
 </html>
