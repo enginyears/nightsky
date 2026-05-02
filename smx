@@ -246,8 +246,10 @@ function buildMoonCanvas(R, phase) {
     es.addColorStop(0,'rgba(8,16,40,.92)'); es.addColorStop(1,'rgba(2,4,14,.97)');
     o.fillStyle = es; o.fillRect(0,0,SZ,SZ); o.restore();
   } else {
-    const ex = R * Math.cos(2 * Math.PI * phase);
     const waxing = phase < 0.5;
+    // For waxing: ex positive = terminator curves right (large shadow at new moon, shrinks to full)
+    // For waning: negate ex so terminator curves correctly from the right side
+    const ex = R * Math.cos(2 * Math.PI * phase) * (waxing ? 1 : -1);
     o.save();
     o.beginPath(); o.arc(cx,cy,R,0,Math.PI*2); o.clip();
     o.fillStyle = 'rgba(2,4,12,.96)';
@@ -496,11 +498,11 @@ function drawLoop(ts) {
     const by = ((s.y + oy) % H + H) % H;
 
     // Step 2: mouse attraction — nudge dx/dy toward the mouse if it's close enough
-    const dist = Math.hypot(smx - (bx + s.dx), smy - (by + s.dy));
+    const dist = Math.hypot(mx - (bx + s.dx), my - (by + s.dy));
     if (dist < ATTRACT_RADIUS && dist > 1) {
       const strength = ATTRACT_FORCE * (1 - dist / ATTRACT_RADIUS);
-      s.dx += ((smx - bx) / dist) * strength * 12;
-      s.dy += ((smy - by) / dist) * strength * 12;
+      s.dx += ((mx - bx) / dist) * strength * 12;
+      s.dy += ((my - by) / dist) * strength * 12;
       const mag = Math.hypot(s.dx, s.dy);
       if (mag > MAX_DISPLACE) { s.dx = s.dx/mag * MAX_DISPLACE; s.dy = s.dy/mag * MAX_DISPLACE; }
     }
