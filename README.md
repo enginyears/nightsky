@@ -1,6 +1,6 @@
-# 🌌 @the_enginyears · Instagram Galaxy
+# 🌌 @enginyears.me · Instagram Galaxy
 
-A live sky visualization where **every Instagram follower is a real star** — spectral colour, individual twinkle, depth parallax. The moon shows today's actual lunar phase. Lose a follower? Shooting stars streak across the sky.
+A live night sky where every Instagram follower is a real star. The moon shows today's actual lunar phase. Lose a follower and shooting stars streak across the sky.
 
 **Live at:** `https://enginyears.github.io/nightsky/`
 
@@ -10,75 +10,135 @@ A live sky visualization where **every Instagram follower is a real star** — s
 
 | Feature | Detail |
 |---|---|
-| 🌙 **Real moon phase** | Mathematically accurate terminator shadow, mare regions, craters, limb darkening |
-| ⭐ **Follower stars** | Exactly N stars = your follower count, seeded positions stay stable between refreshes |
-| 🌈 **Spectral colours** | Stars are O/B/A/F/G/K/M class — rare hot blue stars, common yellow G-types, red dwarfs |
-| 🌠 **Shooting stars** | Auto every 8–26 seconds. Lose followers? One streak per lost follower fires immediately |
-| ✨ **Golden shimmer** | Warm radial glow sweeps the sky when your count increases |
-| 🌌 **Milky Way band** | Diagonal star-dust smear across the canvas |
-| 🌿 **Aurora borealis** | Subtle wavy green/teal/violet bands shimmer at the horizon |
-| 🖱 **Parallax** | Star layers shift on mouse movement — three depth planes |
-| ⏱ **Auto-refresh** | Data reloads every 30 min, countdown visible top-right |
+| 🌙 **Real moon** | Mathematically accurate phase, mare regions, craters, limb darkening, earthshine on new moon |
+| ⭐ **Follower stars** | Exactly N stars = your follower count, stable seeded positions |
+| 🎨 **Spectral colours** | O/B blue-white, A white, F/G yellow, K orange, M red — weighted by real stellar frequency |
+| 🖱 **Star cursor** | OS cursor hidden, replaced with a twinkling 8-spike diffraction star drawn on canvas |
+| 🌊 **Mouse attraction** | Follower stars drift toward the cursor when nearby, snap back instantly when it leaves |
+| 🔭 **Parallax** | Background stars shift on mouse movement across three depth layers |
+| 🌌 **Milky Way** | Seeded diagonal star-dust band |
+| 🌿 **Aurora** | Wavy green/teal/violet bands shimmer at the horizon |
+| 🌠 **Shooting stars** | Auto every 8–26 s. Lose followers? One streak per lost follower fires immediately |
+| ✨ **Gain flash** | Gold `+N ✦` floats up when your count increases |
+| 🕐 **Last synced** | Top-right pill shows the exact date and time of the last successful data sync in IST |
 
 ---
 
-## Setup (10 minutes)
-
-### 1. Create a public GitHub repo & push all files
-
-Push this entire folder to a new public repo on GitHub.
+## File structure
 
 ```
-your-repo/
-├── index.html
-├── fetch.py
-├── data.json
-├── requirements.txt
+nightsky/
+├── index.html                        # The entire webpage (self-contained, no dependencies)
+├── data.json                         # Written by fetch.py, read by the webpage
+├── fetch.py                          # Fetches follower count from Instagram
+├── requirements.txt                  # Python dependencies (instaloader)
 ├── README.md
 └── .github/
     └── workflows/
-        └── sync.yml
+        └── sync.yml                  # GitHub Actions — runs fetch.py every 30 min
 ```
 
-### 2. Enable GitHub Pages
+---
 
-**Settings → Pages → Source: Deploy from branch → Branch: main / (root)**
+## How the data pipeline works
 
-Your page will be live within ~60 seconds at:
-`https://<username>.github.io/<repo>/`
-
-### 3. Run the first sync
-
-Go to **Actions → 🌌 Sync Galaxy → Run workflow**.
-
-This fetches your follower count from Instagram (no login needed — public profile), writes `data.json`, and commits it back to the repo. GitHub Pages then serves it.
-
-After this, the workflow runs every 30 minutes automatically.
+```
+Your home machine (residential IP)
+        │
+        │  self-hosted GitHub Actions runner
+        │  runs fetch.py every 30 minutes
+        │
+        ▼
+Instagram API  ──►  data.json  ──►  git commit + push
+                                          │
+                                          ▼
+                                   GitHub Pages serves
+                                   the updated file
+                                          │
+                                          ▼
+                              Browser fetches data.json
+                              every 30 min (cache: no-store)
+                              and redraws the star field
+```
 
 ---
 
-## How it fetches follower count (no login needed)
+## Why a self-hosted runner?
 
-The script (`fetch.py`) uses **instaloader** in unauthenticated mode to read the public follower count. Instagram makes this available for public profiles without requiring a session.
-
-If instaloader is blocked, it falls back to a direct HTTP scrape of the Instagram page.
+Instagram blocks all requests from cloud datacenter IPs (AWS, Azure, Cloudflare). Your local machine has a residential IP that Instagram doesn't block. The self-hosted GitHub Actions runner is just a small background service running on your home machine that lets GitHub trigger jobs on it remotely.
 
 ---
 
-## Local preview
+## Setup
+
+### 1. Push to GitHub and enable Pages
+
+Create a public repository, push all files, then go to **Settings → Pages → Source: Deploy from branch → Branch: main / (root)**. Your page will be live within a minute.
+
+### 2. Install the self-hosted runner
+
+In your GitHub repo go to **Settings → Actions → Runners → New self-hosted runner → Linux**.
+
+Follow the four commands GitHub shows you. Run them on your home machine (the same machine where `python3 fetch.py` works locally). After `./run.sh` confirms it's connected, install it as a permanent service so it survives reboots:
 
 ```bash
-pip install instaloader
-python fetch.py            # generates data.json
-python -m http.server 8000 # open http://localhost:8000
+sudo ./svc.sh install
+sudo ./svc.sh start
 ```
 
-> Note: open via a local server (not `file://`) because `fetch()` is blocked on `file://` origins.
+The runner will now start automatically on boot and sit idle until GitHub triggers it.
+
+### 3. Trigger the first sync
+
+Go to **Actions → 🌌 Sync Galaxy → Run workflow**. This runs `fetch.py` on your home machine, writes `data.json` with your real follower count, commits it, and pushes. After that it runs automatically every 30 minutes.
+
+To confirm it worked, check that `data.json` in your repo now has a non-zero `follower_count` and a recent `fetched_at` timestamp.
 
 ---
 
-## Notes
+## How the webpage works
 
-- GitHub's scheduled cron has a minimum interval of **5 minutes** and may run a few minutes late on free plans — 30 min is reliable.
-- The star positions are seeded from a fixed random seed, not from follower data, so the sky looks consistent between refreshes.
-- For accounts with 10,000+ followers the canvas renders all stars efficiently using Canvas2D batching.
+**No framework, no build step** — `index.html` is entirely self-contained vanilla JavaScript using the browser's Canvas 2D API.
+
+### Moon rendering
+The moon is drawn once to an offscreen `<canvas>` element and cached. It is only rebuilt when the lunar phase shifts by more than 0.15% (roughly every few minutes). The terminator (day/night boundary) is approximated with a cubic bezier curve using the formula `ex = R × cos(2π × phase)` to compute the ellipse semi-axis. Phase 0 = new moon, 0.5 = full moon.
+
+### Star positions
+All positions use a seeded pseudo-random number generator (mulberry32). The same seed always produces the same sequence of positions, so the star field looks identical on every page load and every browser. Adding new followers appends new stars without shifting existing ones.
+
+### Mouse attraction physics
+Each follower star carries a displacement offset `(dx, dy)` that starts at zero. Every frame:
+1. If the cursor is within `ATTRACT_RADIUS` pixels, `dx/dy` is nudged toward the cursor proportional to proximity (closer = stronger pull)
+2. `dx` and `dy` are multiplied by `DECAY = 0.78` — exponential decay that pulls the star back home when the cursor leaves
+3. The star is drawn at `(x + dx, y + dy)`
+
+The cursor and attraction calculations use raw mouse coordinates (`mx, my`). The parallax effect uses smoothed coordinates (`smx, smy` — lerped 4% per frame) because that lag creates a pleasing elastic feel. Anything the user *controls* gets raw values; anything that *reacts* can be smoothed.
+
+### Cache busting
+`data.json` is fetched with `{ cache: 'no-store' }` to force a real network request on every refresh, preventing GitHub Pages' CDN from serving a stale copy.
+
+---
+
+## Tweaking the physics
+
+All the interesting constants are at the top of `drawLoop` in `index.html`:
+
+| Constant | Default | Effect |
+|---|---|---|
+| `ATTRACT_RADIUS` | 150 | How close the cursor must be to pull a star (px) |
+| `ATTRACT_FORCE` | 0.55 | How eagerly stars accelerate toward the cursor |
+| `DECAY` | 0.78 | How fast displacement fades — lower = snappier return |
+| `MAX_DISPLACE` | 36 | Maximum drift from home position (px) |
+
+---
+
+## Local development
+
+```bash
+pip3 install instaloader
+python3 fetch.py          # writes data.json locally
+
+# Must serve over HTTP — fetch() is blocked on file:// origins
+python3 -m http.server 8000
+# Open http://localhost:8000
+```
